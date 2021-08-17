@@ -18,7 +18,7 @@ camera_intrinsics = Geometry.CameraIntrinsics(
 renderer = GL.setup_renderer(camera_intrinsics, GL.DepthMode())
 
 v,_,f,_ = renderer.gl_instance.load_obj_parameters(
-    "/home/nishadg/mcs/ThreeDVision.jl/data/ycbv2/models/035_power_drill/textured_simple.obj"
+    obj_path
 ) 
 GL.load_object!(renderer, v, f)
 

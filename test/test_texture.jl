@@ -20,10 +20,11 @@ camera_intrinsics = Geometry.CameraIntrinsics(
 renderer = GL.setup_renderer(camera_intrinsics, GL.TextureMode())
 
 v,n,f,t = renderer.gl_instance.load_obj_parameters(
-    "/home/nishadg/mcs/ThreeDVision.jl/data/ycbv2/models/035_power_drill/textured_simple.obj"
+    obj_path
 ) 
 GL.load_object!(renderer, v, n, f, t,
-    "/home/nishadg/mcs/ThreeDVision.jl/data/ycbv2/models/035_power_drill/texture_map.png")
+    texture_path
+)
 
 rgb_image, depth_image = GL.gl_render_rgb_depth_image(
     renderer, [1], [P.Pose([0.0, 0.0, 1.0], R.RotXYZ(0.1, 0.4, 0.9))], 
