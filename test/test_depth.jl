@@ -28,4 +28,4 @@ import Images
 I = Images
 
 img = I.colorview(I.Gray, depth_image ./ maximum(depth_image))
-I.save("depth_rendering_depth_image.png", img)
+I.save(joinpath(@__DIR__, "imgs/depth_rendering_depth_image.png"), img)

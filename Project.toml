@@ -5,6 +5,7 @@ version = "0.1.0"
 
 [deps]
 Geometry = "c612f79c-9085-4a9b-8541-08715a5261fc"
+IJulia = "7073ff75-c697-5162-941a-fcdaad2a7d2a"
 Images = "916415d5-f1e6-5110-898d-aaa5f9f070e0"
 PoseComposition = "0a8ab332-79e8-43e0-a313-949ce1168071"
 PyCall = "438e738f-606a-5dbb-bf0a-cddfbfd45ab0"

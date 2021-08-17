@@ -33,7 +33,7 @@ rgb_image, depth_image = GL.gl_render_rgb_depth_image(
 
 
 img = I.colorview(I.RGBA, permutedims(rgb_image,(3,1,2)))
-I.save("rgb_rendering_rgb_image.png", img)
+I.save(joinpath(@__DIR__, "imgs/rgb_rendering_rgb_image.png"), img)
 
 img = I.colorview(I.Gray, depth_image ./ maximum(depth_image))
-I.save("rgb_rendering_depth_image.png", img)
+I.save(joinpath(@__DIR__, "imgs/rgb_rendering_depth_image.png"), img)
