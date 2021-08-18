@@ -181,12 +181,27 @@ class GLRenderer:
         uniform vec3 light_position;  // in world coordinate
         uniform vec3 light_color; // light color
         void main() {
-            float ambientStrength = 0.6;
-            vec3 ambient = ambientStrength * light_color;
-            vec3 lightDir = normalize(light_position - FragPos);
-            float diff = max(dot(Normal, lightDir), 0.0);
-            vec3 diffuse = diff * light_color;
-            outputColour =  vec4(theColor) * vec4(diffuse + ambient, 1);
+            vec3 N = normalize(Normal);
+            vec3 L = normalize(light_position - FragPos);
+
+            // Lambert's cosine law
+            float lambertian = max(dot(N, L), 0.0);
+            float specular = 0.0;
+            float shininessVal = 80.0;
+            float Ka = 0.6;
+            float Kd = 1.0;
+            float Ks = 0.4;
+
+            if(lambertian > 0.0) {
+                vec3 R = reflect(-L, N);      // Reflected light vector
+                vec3 V = normalize(-FragPos); // Vector to viewer
+                // Compute the specular term
+                float specAngle = max(dot(R, V), 0.0);
+                specular = pow(specAngle, shininessVal);
+            }
+            outputColour = vec4(Ka * theColor +
+                              Kd * lambertian * theColor +
+                              Ks * specular * vec3(1.0,1.0,1.0), 1.0);
         }
         """, GL.GL_FRAGMENT_SHADER)
 

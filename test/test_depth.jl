@@ -22,7 +22,7 @@ v,_,f,_ = renderer.gl_instance.load_obj_parameters(
 ) 
 GL.load_object!(renderer, v, f)
 
-depth_image = GL.gl_render_depth_image(renderer, [1], [P.Pose([0.0, 0.0, 1.0], R.RotXYZ(0.1, 0.4, 0.9))], P.IDENTITY_POSE)
+depth_image = GL.gl_render(renderer, [1], [P.Pose([0.0, 0.0, 1.0], R.RotXYZ(0.1, 0.4, 0.9))], P.IDENTITY_POSE)
 
 import Images
 I = Images

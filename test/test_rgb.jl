@@ -24,7 +24,7 @@ v,n,f,_ = renderer.gl_instance.load_obj_parameters(
 ) 
 GL.load_object!(renderer, v, n, f)
 
-rgb_image, depth_image = GL.gl_render_rgb_depth_image(
+rgb_image, depth_image = GL.gl_render(
     renderer, [1], [P.Pose([0.0, 0.0, 1.0], R.RotXYZ(0.1, 0.4, 0.9))], 
     [I.colorant"red"],
     P.IDENTITY_POSE

@@ -65,7 +65,7 @@ function pose_to_model_matrix(pose::Pose)::Matrix{Float32}
     return mat
 end
 
-function gl_render_depth_image(
+function gl_render(
         renderer::Renderer{DepthMode}, mesh_ids::Vector{Int},
         poses::Vector{Pose}, camera_pose::Pose
 )
@@ -82,7 +82,7 @@ function gl_render_depth_image(
     depth
 end
 
-function gl_render_rgb_depth_image(
+function gl_render(
     renderer::Renderer{RGBMode}, mesh_ids::Vector{Int},
     poses::Vector{Pose}, colors::Vector{<:Color}, camera_pose::Pose
 )
@@ -104,7 +104,7 @@ function gl_render_rgb_depth_image(
     rgb, depth
 end
 
-function gl_render_rgb_depth_image(
+function gl_render(
     renderer::Renderer{TextureMode}, mesh_ids::Vector{Int},
     poses::Vector{Pose}, camera_pose::Pose
 )
@@ -125,6 +125,6 @@ function gl_render_rgb_depth_image(
     rgb, depth
 end
 
-export setup_renderer, load_object!, gl_render_depth_image
+export setup_renderer, load_object!, gl_render
 
 end
