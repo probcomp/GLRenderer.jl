@@ -11,6 +11,9 @@ function __init__()
     copy!(glrenderer_python, pyimport("glrenderer"))
 end
 
+include("mesh.jl")
+include("point_cloud.jl")
+
 
 abstract type RenderMode end
 struct DepthMode <: RenderMode end
@@ -78,7 +81,9 @@ function gl_render(
         end 
     for p in poses
     ]
-    depth = renderer.gl_instance.render([i-1 for i in mesh_ids], new_poses);
+    depth_buffer = renderer.gl_instance.render([i-1 for i in mesh_ids], new_poses);
+    near,far = renderer.camera_intrinsics.near, renderer.camera_intrinsics.far
+    depth = far .* near ./ (far .- (far - near) .* depth_buffer)
     depth
 end
 
@@ -95,13 +100,17 @@ function gl_render(
         end 
     for p in poses
     ]
-    rgb, depth = renderer.gl_instance.render([i-1 for i in mesh_ids],
+    rgb, depth_buffer = renderer.gl_instance.render([i-1 for i in mesh_ids],
         new_poses,
         [[c.r, c.g, c.b, c.alpha] for c in map(RGBA,colors)]
     );
     rgb = cat(rgb[:,:,3],rgb[:,:,2],rgb[:,:,1],rgb[:,:,4],dims=3)
     rgb = clamp.(rgb, 0.0, 1.0)
-    rgb, depth
+    
+    near,far = renderer.camera_intrinsics.near, renderer.camera_intrinsics.far
+    depth = far .* near ./ (far .- (far - near) .* depth_buffer)
+    
+    rgb,depth
 end
 
 function gl_render(
@@ -117,12 +126,17 @@ function gl_render(
         end 
     for p in poses
     ]
-    rgb, depth = renderer.gl_instance.render([i-1 for i in mesh_ids],
+    rgb, depth_buffer = renderer.gl_instance.render([i-1 for i in mesh_ids],
         new_poses,
     );
     rgb = cat(rgb[:,:,3],rgb[:,:,2],rgb[:,:,1],rgb[:,:,4],dims=3)
     rgb = clamp.(rgb, 0.0, 1.0)
-    rgb, depth
+    rgb, depth_buffer
+
+    near,far = renderer.camera_intrinsics.near, renderer.camera_intrinsics.far
+    depth = far .* near ./ (far .- (far - near) .* depth_buffer)
+    
+    rgb,depth
 end
 
 export setup_renderer, load_object!, gl_render

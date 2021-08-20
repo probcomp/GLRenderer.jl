@@ -1,6 +1,5 @@
 
 import ctypes
-import torch
 from pprint import pprint
 from PIL import Image
 import glutils.glcontext as glcontext
@@ -13,8 +12,6 @@ from transforms3d.quaternions import axangle2quat, mat2quat, qmult, qinverse
 from transforms3d.euler import quat2euler, mat2euler, euler2quat
 import CppRenderer
 import matplotlib.pyplot as plt
-import torch.nn.functional as F
-import torch.nn as nn
 import sys
 
 try:
@@ -181,32 +178,18 @@ class GLRenderer:
         uniform vec3 light_position;  // in world coordinate
         uniform vec3 light_color; // light color
         void main() {
-            vec3 N = normalize(Normal);
-            vec3 L = normalize(light_position - FragPos);
-
-            // Lambert's cosine law
-            float lambertian = max(dot(N, L), 0.0);
-            float specular = 0.0;
-            float shininessVal = 80.0;
-            float Ka = 0.6;
-            float Kd = 1.0;
-            float Ks = 0.4;
-
-            if(lambertian > 0.0) {
-                vec3 R = reflect(-L, N);      // Reflected light vector
-                vec3 V = normalize(-FragPos); // Vector to viewer
-                // Compute the specular term
-                float specAngle = max(dot(R, V), 0.0);
-                specular = pow(specAngle, shininessVal);
-            }
-            outputColour = vec4(Ka * theColor +
-                              Kd * lambertian * theColor +
-                              Ks * specular * vec3(1.0,1.0,1.0), 1.0);
+            float ambientStrength = 0.6;
+            vec3 ambient = ambientStrength * light_color;
+            vec3 lightDir = normalize(light_position - FragPos);
+            float diff = max(dot(Normal, lightDir), 0.0);
+            vec3 diffuse = diff * light_color;
+            outputColour =  vec4(theColor) * vec4(diffuse + ambient, 1);
         }
         """, GL.GL_FRAGMENT_SHADER)
 
         self.shaderProgram_rgb = self.shaders.compileProgram(vertexShader_rgb,
                                                                      fragmentShader_rgb)
+
         vertexShader_depth = self.shaders.compileShader("""
         #version 460
         uniform mat4 V;
@@ -416,14 +399,16 @@ class GLRenderer:
         for (i, index) in enumerate(cls_indexes):
             if self.render_type == "depth":
                 GL.glUseProgram(self.shaderProgram_depth)
+                trans = np.ascontiguousarray(xyz2mat(poses[i][:3]))
+                rot = np.ascontiguousarray(quat2rotmat(poses[i][3:]))
                 GL.glUniformMatrix4fv(GL.glGetUniformLocation(self.shaderProgram_depth, 'V'), 1, GL.GL_TRUE,
                                       self.V)
                 GL.glUniformMatrix4fv(GL.glGetUniformLocation(self.shaderProgram_depth, 'P'), 1, GL.GL_FALSE,
                                       self.P)
                 GL.glUniformMatrix4fv(GL.glGetUniformLocation(self.shaderProgram_depth, 'pose_trans'), 1,
-                                      GL.GL_FALSE, np.ascontiguousarray(xyz2mat(poses[i][:3])))
+                                      GL.GL_FALSE, trans)
                 GL.glUniformMatrix4fv(GL.glGetUniformLocation(self.shaderProgram_depth, 'pose_rot'), 1,
-                                      GL.GL_TRUE, np.ascontiguousarray(quat2rotmat(poses[i][3:])))
+                                      GL.GL_TRUE, rot)
             elif self.render_type == "rgb":            
                 GL.glUseProgram(self.shaderProgram_rgb)
                 GL.glUniformMatrix4fv(GL.glGetUniformLocation(self.shaderProgram_rgb, 'V'), 1, GL.GL_TRUE,
@@ -477,19 +462,18 @@ class GLRenderer:
         GL.glDisable(GL.GL_DEPTH_TEST)
 
         GL.glReadBuffer(GL.GL_COLOR_ATTACHMENT0)        
-        depth = GL.glReadPixels(0, 0, self.width, self.height, GL.GL_DEPTH_COMPONENT, GL.GL_FLOAT)
-        depth = depth.reshape(self.height, self.width)[::-1, :]
-        depth = (self.far * self.near) / (self.far - (self.far - self.near) * depth)
+        depth_buffer = GL.glReadPixels(0, 0, self.width, self.height, GL.GL_DEPTH_COMPONENT, GL.GL_FLOAT)
+        depth_buffer = depth_buffer.reshape(self.height, self.width)[::-1, :]
 
         if self.render_type == "depth":
-            return depth
+            return depth_buffer
 
         GL.glReadBuffer(GL.GL_COLOR_ATTACHMENT0)        
         rgb = GL.glReadPixels(0, 0, self.width, self.height, GL.GL_BGRA, GL.GL_FLOAT)
         rgb = np.frombuffer(rgb, dtype = np.float32).reshape(self.width, self.height, 4)
         rgb = rgb.reshape(self.height, self.width, 4)[::-1, :]
         
-        return rgb, depth
+        return rgb, depth_buffer
 
     def set_camera(self, camera, target, up):
         self.camera = camera
