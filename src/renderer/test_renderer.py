@@ -1,10 +1,8 @@
 import glrenderer
-import torch
 import numpy as np
 
 
 import ctypes
-import torch
 from pprint import pprint
 from PIL import Image
 import glutils.glcontext as glcontext
@@ -17,14 +15,11 @@ from transforms3d.quaternions import axangle2quat, mat2quat, qmult, qinverse
 from transforms3d.euler import quat2euler, mat2euler, euler2quat
 import CppRenderer
 import matplotlib.pyplot as plt
-import torch.nn.functional as F
-import torch.nn as nn
 import sys
-import matplotlib.pyplot as plt
 
 
-obj_path = "/home/nishadg/mcs/ThreeDVision.jl/data/ycbv2/models/035_power_drill/textured_simple.obj"
-texture_path = "/home/nishadg/mcs/ThreeDVision.jl/data/ycbv2/models/035_power_drill/texture_map.png"
+obj_path = "../../test/035_power_drill/textured_simple.obj"
+texture_path = "../../test/035_power_drill/texture_map.png"
 pose = np.array([0.0, 0.0, 0.3, 1, 0, 0, 0])
 
 
