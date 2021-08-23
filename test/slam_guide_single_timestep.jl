@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 # +
+# ENV["PYTHON"] = "/home/falk/.julia/dev/GLRenderer.jl/venv/bin/python"
+
 import Revise
 import GLRenderer
 import PoseComposition
@@ -7,6 +9,10 @@ import Rotations
 import Geometry
 import Plots
 import Images
+
+import Gen
+import Distributions
+
 import GenParticleFilters
 PF = GenParticleFilters
 
@@ -59,6 +65,7 @@ for x in room_width_bounds[1]:resolution/2.0:room_width_bounds[2]
     push!(room_cloud_3, [x, 0.0, room_height_bounds[1]])
     push!(room_cloud_4, [x, 0.0, room_height_bounds[2]])
 end
+<<<<<<< HEAD
 v1,n1,f1 = GL.mesh_from_voxelized_cloud(GL.voxelize(hcat(room_cloud_1...), resolution), resolution)
 v2,n2,f2 = GL.mesh_from_voxelized_cloud(GL.voxelize(hcat(room_cloud_2...), resolution), resolution)
 v3,n3,f3 = GL.mesh_from_voxelized_cloud(GL.voxelize(hcat(room_cloud_3...), resolution), resolution)
@@ -72,6 +79,13 @@ PL.scatter!(v3[:,1],v3[:,3],label="")
 PL.scatter!(v4[:,1],v4[:,3],label="")
 # -
 
+=======
+room_cloud = hcat(room_cloud...)
+PL.scatter(room_cloud[1,:],room_cloud[3,:],label="")
+# -
+
+v,n,f = GL.mesh_from_voxelized_cloud(GL.voxelize(room_cloud, resolution), resolution)
+>>>>>>> b9b7409... Potential mode collapse
 renderer = GL.setup_renderer(Geometry.CameraIntrinsics(
     600, 600,
     300.0, 300.0,
@@ -264,9 +278,12 @@ function viz_corner(corner_pose)
     direction = corner_pose.orientation * [1.0, 0.0, 0.0]
     PL.plot!([pos[1], pos[1]+direction[1]],[pos[3], pos[3]+direction[3]],arrow=true,color=:red,linewidth=2, label=false)
 end
-# -
 
+# +
 # constraints = Gen.choicemap(:pos=>[0.0, 0.0], :hd=>pi/4)
+
+T_gen = 12
+
 import LinearAlgebra
 cov = Matrix{Float64}(LinearAlgebra.I, camera_intrinsics.width, camera_intrinsics.width) * 0.01;
 tr_gt, w = Gen.generate(slam_multi_timestep, (5, nothing, room_bounds_uniform_params, wall_colors, cov,));
@@ -395,7 +412,8 @@ end
 # # Inference
 
 # +
-T = 5
+# T = T_gen
+T = 12  # TODO 7 or above will cause error 3 cells down - why?
 constraints = 
     Gen.choicemap(
         pose_addr(1)=>P.Pose([-3.0, 0.0, -1.0], R.RotY(pi+pi/4))
@@ -405,15 +423,63 @@ for t in 2:T
 end
 
 import LinearAlgebra
+<<<<<<< HEAD
 # wall_colors = [I.colorant"red",I.colorant"green",I.colorant"blue",I.colorant"yellow"]
 wall_colors = [I.colorant"red",I.colorant"red",I.colorant"red",I.colorant"red"]
 cov = Matrix{Float64}(LinearAlgebra.I, camera_intrinsics.width, camera_intrinsics.width) * 0.5;
 tr_gt, w = Gen.generate(slam_multi_timestep, (T, nothing, room_bounds_uniform_params,wall_colors,cov,), constraints);
 @show Gen.get_score(tr_gt)
 viz_trace(tr_gt, [1])
+=======
+I = Matrix{Float64}(LinearAlgebra.I, camera_intrinsics.width, camera_intrinsics.width) * 0.1;
+tr_gt, w = Gen.generate(slam_multi_timestep, (T, nothing, room_bounds_uniform_params,I,), constraints);
+viz_trace(tr_gt, [2])
+>>>>>>> b9b7409... Potential mode collapse
 
 # +
-corners = get_corners(get_depth(tr_gt,1))
+function get_corners2(sense)
+    cloud = GL.flatten_point_cloud(GL.depth_image_to_point_cloud(reshape(sense,(camera_intrinsics.height, camera_intrinsics.width)), camera_intrinsics))
+    cloud = vcat(cloud[1,:]', cloud[3,:]')
+    deltas = diff(cloud,dims=2)
+    dirs = map(x->R.RotMatrix{2,Float32}(atan(x[2],x[1])), eachcol(deltas))
+    angle_errors = [abs.(R.rotation_angle(inv(dirs[i])*dirs[i+1])) for i in 1:length(dirs)-1]
+    spikes = findall(angle_errors .> deg2rad(45.0))
+    spikes .+= 1
+    corners = []
+    
+    for s in spikes
+        i,j = s-2,s-1
+        k,l = s+2,s+1
+        if i > 0 && j > 0 && k > 0 && l > 0
+            a,b,c,d = cloud[:,i],cloud[:,j],cloud[:,k],cloud[:,l]
+            d1 =  a.-b
+            d2 =  c.-d
+            d1 = d1 / LinearAlgebra.norm(d1)
+            d2 = d2 / LinearAlgebra.norm(d2)
+            dir = (d1 .+ d2) ./ 2
+
+            function intersection(a,b,c,d)
+                a1 = b[2] - a[2]
+                b1 = a[1] - b[1]
+                c1 = a1 * a[1] + b1 * a[2]
+
+                a2 = d[2] - c[2]
+                b2 = c[1] - d[1]
+                c2 = a2 * c[1] + b2 * c[2]
+
+                Δ = a1 * b2 - a2 * b1
+                # If lines are parallel, intersection point will contain infinite values
+                return (b2 * c1 - b1 * c2) / Δ, (a1 * c2 - a2 * c1) / Δ
+            end
+            corner = intersection(a,b,c,d)
+            corner_pose = P.Pose([corner[1], 0.0, corner[2]], R.RotY(-atan(dir[2],dir[1])))
+            push!(corners, corner_pose)
+        end
+    end
+    corners
+end
+
+corners = get_corners2(get_depth(tr_gt,1))
 poses = []
 for c in corners
     for c2 in gt_corners
@@ -481,7 +547,8 @@ PF.pf_move_accept!(pf_state, Gen.metropolis_hastings, (head_direction_drift_prop
 PF.pf_move_accept!(pf_state, Gen.metropolis_hastings, (joint_pose_drift_proposal, 
         (t,[1.0 0.0;0.0 1.0] * 0.1, deg2rad(1.0))), 10);
 
-for t in 2:5
+# +
+for t in 2:T
     PF.pf_update!(pf_state,
                   (t, Gen.get_args(tr_gt)[2:end]...),
                   (Gen.UnknownChange(),[Gen.NoChange() for _ in 1:(length(Gen.get_args(tr_gt))-1)]...),
@@ -490,7 +557,7 @@ for t in 2:5
 
     
     # Geometrically computed pose proposal
-    corners = get_corners(get_depth(tr_gt,t))
+    corners = get_corners2(get_depth(tr_gt, t))  # get_corners(get_depth(tr_gt, t))
     poses = []
     for c in corners
         for c2 in gt_corners
@@ -519,9 +586,12 @@ end
 # -
 
 order = sortperm(pf_state.log_weights,rev=true)
-best_tr = pf_state.traces[order[15]]
-viz_trace(best_tr, [1,2,3,4,5])
+
+best_tr = pf_state.traces[order[1]]
+viz_trace(best_tr, 1:T)
 # viz_pose(get_pose(best_tr,1))
+
+viz_trace(tr_gt, 1:T)
 
 z = Gen.logsumexp(pf_state.log_weights)
 log_weights = pf_state.log_weights .- z
@@ -529,7 +599,67 @@ weights = exp.(log_weights)
 @show sum(weights)
 weights
 
+# +
+function viz_trace2(tr, ts)
+#     PL.plot()
+    T = Gen.get_args(tr)[1]
+    viz_env()
+    for t in ts
+        viz_pose(get_pose(tr,t))
+        viz_obs(tr, t)
+    end
+#     PL.plot!()
+end
 
+PL.plot()
+for tr_idx in 1:length(pf_state.traces)
+#     println(tr_idx)
+    trac = pf_state.traces[tr_idx]
+    #println(trac)
+    viz_trace2(trac, 1:T)
+end
+PL.plot!()
+
+# +
+using Clustering  # import Pkg; Pkg.add("Clustering")
+
+function collect_points(trs, t_max)
+    positions = []
+    for tr_idx in 1:length(trs)
+        tr = trs[tr_idx]
+        T = Gen.get_args(tr)[1]
+
+        for t in 1:t_max
+            push!(positions, get_pose(tr, t).pos)
+        end
+    end
+    positions
+end
+    
+pts = collect_points(pf_state.traces, T);
+# -
+
+pts_mat = vcat(hcat(pts...))
+R = kmeans(pts_mat, 4; maxiter=200, display=:iter)
+
+# +
+import PyPlot
+plt = PyPlot.plt
+
+println(R.counts)
+println(R.centers)
+plt.figure(figsize=(4,4)); plt.gca().set_aspect(1.);
+
+vals = R.counts/maximum(R.counts)
+
+plt.scatter(R.centers[1, :], R.centers[3, :], c="red", marker="o", alpha=vals)
+# -
+
+
+
+order = sortperm(pf_state.log_weights,rev=true)
+best_tr = pf_state.traces[order[1]]
+viz_trace(best_tr, 1:max_t)
 
 
 
