@@ -7,19 +7,15 @@ import Rotations
 import Geometry
 import Plots
 import Images
+import GenParticleFilters
+PF = GenParticleFilters
+
 I = Images
 PL = Plots
 
 R = Rotations
 P = PoseComposition
 GL = GLRenderer
-
-camera_intrinsics = Geometry.CameraIntrinsics(
-    640, 480,
-    1000.0, 1000.0,
-    320.0, 240.0,
-    0.01, 20.0
-)
 # -
 
 import Plots
@@ -28,11 +24,19 @@ PL = Plots
 Revise.errors()
 Revise.revise()
 
+# +
 cloud = rand(3,100) * 1.0
 resolution = 0.1
 v,n,f = GL.mesh_from_voxelized_cloud(GL.voxelize(cloud, resolution), resolution)
-renderer = GL.setup_renderer(camera_intrinsics, GL.RGBMode())
+
+renderer = GL.setup_renderer(Geometry.CameraIntrinsics(
+    640, 480,
+    1000.0, 1000.0,
+    320.0, 240.0,
+    0.01, 20.0
+), GL.RGBMode())
 GL.load_object!(renderer, v,n,f)
+
 renderer.gl_instance.lightpos = [0,0,0]
 rgb_image, depth_image = GL.gl_render(renderer, 
     [1], [P.Pose([0.0, 0.0, 4.0], R.RotXYZ(0.0, 0.0, 0.0))], 
@@ -40,10 +44,13 @@ rgb_image, depth_image = GL.gl_render(renderer,
     P.IDENTITY_POSE)
 I.colorview(I.RGBA, permutedims(rgb_image,(3,1,2)))
 
+# +
 room_height_bounds = (-5.0, 5.0)
 room_width_bounds = (-8.0, 8.0)
+
 resolution = 0.1
 room_cloud = []
+
 for z in room_height_bounds[1]:resolution/2.0:room_height_bounds[2]
     push!(room_cloud, [room_width_bounds[1], 0.0, z])
     push!(room_cloud, [room_width_bounds[2], 0.0, z])
@@ -53,8 +60,13 @@ for x in room_width_bounds[1]:resolution/2.0:room_width_bounds[2]
     push!(room_cloud, [x, 0.0, room_height_bounds[2]])
 end
 room_cloud = hcat(room_cloud...)
-v,n,f = GL.mesh_from_voxelized_cloud(GL.voxelize(room_cloud, resolution), resolution)
+PL.scatter(room_cloud[1,:],room_cloud[3,:],label="")
 
+# -
+
+v
+
+v,n,f = GL.mesh_from_voxelized_cloud(GL.voxelize(room_cloud, resolution), resolution)
 renderer = GL.setup_renderer(Geometry.CameraIntrinsics(
     600, 600,
     300.0, 300.0,
@@ -68,6 +80,7 @@ depth = GL.gl_render(renderer,
     P.Pose([0.0, -10.0, 0.0], R.RotX(-pi/2)))
 PL.heatmap(depth, aspect_ratio=:equal)
 
+# +
 camera_intrinsics = Geometry.CameraIntrinsics(
     14, 1,
     5.0, 1.0,
@@ -77,18 +90,27 @@ camera_intrinsics = Geometry.CameraIntrinsics(
 renderer = GL.setup_renderer(camera_intrinsics, GL.DepthMode())
 GL.load_object!(renderer, v, f)
 renderer.gl_instance.lightpos = [0,0,0]
-cam_pose = P.Pose(zeros(3), R.RotY(0.0))
+
+cam_pose = P.IDENTITY_POSE
 @time depth = GL.gl_render(renderer, 
     [1], [P.IDENTITY_POSE], cam_pose)
 cloud = GL.flatten_point_cloud(GL.depth_image_to_point_cloud(depth, camera_intrinsics))
+@show size(depth)
 PL.heatmap(depth)
+# -
 
 import Gen
 import Distributions
 
 # +
 struct PoseUniform <: Gen.Distribution{P.Pose} end
-const pose_uniforms = PoseUniform()
+const pose_uniform = PoseUniform()
+function Gen.random(::PoseUniform, bounds_x, bounds_z)
+    x = rand(Distributions.Uniform(bounds_x...))
+    z = rand(Distributions.Uniform(bounds_z...))
+    hd = rand(Distributions.Uniform(0.0, 2*pi))
+    P.Pose([x, 0.0, z], R.RotY(hd))
+end
 function Gen.logpdf(::PoseUniform, pose::P.Pose, bounds_x, bounds_z)
     (
         Gen.logpdf(Gen.uniform, pose.pos[1], bounds_x...) +
@@ -96,15 +118,17 @@ function Gen.logpdf(::PoseUniform, pose::P.Pose, bounds_x, bounds_z)
         Gen.logpdf(Gen.uniform, R.RotY(pose.orientation).theta, 0.0, 2*pi)
     )   
 end
-function Gen.random(::PoseUniform, bounds_x, bounds_z)
-    x = rand(Distributions.Uniform(bounds_x...))
-    z = rand(Distributions.Uniform(bounds_z...))
-    hd = rand(Distributions.Uniform(0.0, 2*pi))
-    P.Pose([x, 0.0, z], R.RotY(hd))
-end
+
 
 struct PoseGaussian <: Gen.Distribution{P.Pose} end
 const pose_gaussian = PoseGaussian()
+function Gen.random(::PoseGaussian, center_pose::P.Pose, cov, var)
+    pos = Gen.random(Gen.mvnormal, [center_pose.pos[1], center_pose.pos[3]], cov)
+
+    hd_center = R.RotY(center_pose.orientation).theta
+    hd = Gen.random(Gen.normal, hd_center, var)
+    P.Pose([pos[1], 0.0, pos[2]], R.RotY(hd))
+end
 function Gen.logpdf(::PoseGaussian, pose::P.Pose, center_pose::P.Pose, cov, var)
     hd = R.RotY(pose.orientation).theta
     hd_center = R.RotY(center_pose.orientation).theta
@@ -113,22 +137,17 @@ function Gen.logpdf(::PoseGaussian, pose::P.Pose, center_pose::P.Pose, cov, var)
         Gen.logpdf(Gen.normal, hd, hd_center, var)
     )   
 end
-function Gen.random(::PoseGaussian, center_pose::P.Pose, cov, var)
-    hd_center = R.RotY(center_pose.orientation).theta
-    pos = Gen.random(Gen.mvnormal, [center_pose.pos[1], center_pose.pos[3]], cov)
-    hd = Gen.random(Gen.normal, hd_center, var)
-    P.Pose([pos[1], 0.0, pos[2]], R.RotY(hd))
-end
+
 # -
 
 room_bounds_uniform_params = [room_width_bounds[1] room_width_bounds[2];room_height_bounds[1] room_height_bounds[2]]
 
 # +
 @Gen.gen function slam_unfold_kernel(t, prev_data, room_bounds, I)
-    if isnothing(prev_data)
-        pose ~ pose_uniforms(room_bounds[1,:],room_bounds[2,:])
+    if t==1
+        pose ~ pose_uniform(room_bounds[1,:],room_bounds[2,:])
     else
-        pose ~ pose_gaussian(prev_data.pose, [1.0 0.0;0.0 1.0] * 0.05, deg2rad(10.0))
+        pose ~ pose_gaussian(prev_data.pose, [1.0 0.0;0.0 1.0] * 0.1, deg2rad(20.0))
     end
     depth = GL.gl_render(renderer, 
         [1], [P.IDENTITY_POSE], pose)    
@@ -137,18 +156,20 @@ room_bounds_uniform_params = [room_width_bounds[1] room_width_bounds[2];room_hei
     return (pose=pose, depth=depth, sense=sense)
 end
 
-sense_addr(t) = (:slam => t => :sense)
-pose_addr(t) = (:slam => t => :pose)
-get_pose(tr,t) = tr[pose_addr(t)]
-get_depth(tr,t) = Gen.get_retval(tr)[t].depth
-get_sense(tr,t) = tr[sense_addr(t)]
-
 slam_unfolded = Gen.Unfold(slam_unfold_kernel)
 
 @Gen.gen (static) function slam_multi_timestep(T, prev_data, room_bounds, I)
     slam ~ slam_unfolded(T, prev_data, room_bounds, I)
     return slam
 end
+
+
+sense_addr(t) = (:slam => t => :sense)
+pose_addr(t) = (:slam => t => :pose)
+get_pose(tr,t) = tr[pose_addr(t)]
+get_depth(tr,t) = Gen.get_retval(tr)[t].depth
+get_sense(tr,t) = tr[sense_addr(t)]
+
 
 Gen.@load_generated_functions
 
@@ -203,7 +224,7 @@ end
 import LinearAlgebra
 I = Matrix{Float64}(LinearAlgebra.I, camera_intrinsics.width, camera_intrinsics.width) * 0.01;
 tr_gt, w = Gen.generate(slam_multi_timestep, (5, nothing, room_bounds_uniform_params,I,));
-viz_trace(tr_gt,1:5)
+viz_trace(tr_gt,1)
 
 # # Corner Detection
 
@@ -217,6 +238,7 @@ gt_corners = [corner_1,corner_2,corner_3,corner_4]
 for c in gt_corners
     viz_corner(c)
 end
+# TODO: Write corner detection function that finds corners given an occupancy grid (aka point cloud) of the room.
 PL.plot!()
 
 function get_corners(sense)
@@ -259,13 +281,46 @@ function get_corners(sense)
     corners
 end
 
+sense = get_depth(tr_gt,1)
+corners = get_corners(sense)
+cloud = GL.flatten_point_cloud(GL.depth_image_to_point_cloud(reshape(sense,(camera_intrinsics.height, camera_intrinsics.width)), camera_intrinsics))
+PL.scatter(cloud[1,:], cloud[3,:])
+for c in corners
+    viz_corner(c)
+end
+PL.plot!(xlim=(-10,10),ylim=(-10,10), aspect_ratio=:equal)
+
+# +
+sense = get_depth(tr_gt,1)
+
+corners = get_corners(sense)
+poses = []
+for c in corners
+    for c2 in gt_corners
+        p = c2 * inv(c)
+        push!(poses, p)
+    end
+end
+
+PL.plot()
+viz_env()
+for p in poses
+   viz_pose(p) 
+end
+for c in gt_corners
+   viz_corner(c) 
+end
+PL.plot!()
+
 # +
 mixture_of_pose_gaussians = Gen.HomogeneousMixture(pose_gaussian, [0, 2, 0])
 
 @Gen.gen function pose_mixture_proposal(trace, poses, t, cov, var)
     n = length(poses)
     weights = ones(n) ./ n
-    {pose_addr(t)} ~ mixture_of_pose_gaussians(weights, poses, cat([cov for _ in 1:n]..., dims=3), [var for _ in 1:n])
+    {pose_addr(t)} ~ mixture_of_pose_gaussians(
+        weights, poses, cat([cov for _ in 1:n]..., dims=3), [var for _ in 1:n]
+    )
 end
 # -
 
@@ -300,11 +355,7 @@ end
 import LinearAlgebra
 I = Matrix{Float64}(LinearAlgebra.I, camera_intrinsics.width, camera_intrinsics.width) * 0.1;
 tr_gt, w = Gen.generate(slam_multi_timestep, (T, nothing, room_bounds_uniform_params,I,), constraints);
-viz_trace(tr_gt, [1,2,3,4,5])
-# -
-
-import GenParticleFilters
-PF = GenParticleFilters
+viz_trace(tr_gt, [1])
 
 # +
 corners = get_corners(get_depth(tr_gt,1))
@@ -335,12 +386,14 @@ best_tr = pf_state.traces[best_idx]
 viz_trace(best_tr, [1])
 # viz_pose(get_pose(best_tr,1))
 
-for t in 3:3
+for t in 2:5
     PF.pf_update!(pf_state,
                   (t, Gen.get_args(tr_gt)[2:end]...),
                   (Gen.UnknownChange(),[Gen.NoChange() for _ in 1:(length(Gen.get_args(tr_gt))-1)]...),
                    Gen.choicemap(sense_addr(t) => get_depth(tr_gt,t)[:]));
 
+    
+    # Geometrically computed pose proposal
     corners = get_corners(get_depth(tr_gt,t))
     poses = []
     for c in corners
@@ -349,15 +402,17 @@ for t in 3:3
             push!(poses, p)
         end
     end
-    
     PF.pf_move_accept!(pf_state, Gen.metropolis_hastings, (pose_mixture_proposal, 
             (poses, t, [1.0 0.0;0.0 1.0] * 0.05, deg2rad(5.0))), 10);
+
+    # Drift Moves
     PF.pf_move_accept!(pf_state, Gen.metropolis_hastings, (position_drift_proposal, 
             (t,[1.0 0.0;0.0 1.0] * 0.5)), 50);
     PF.pf_move_accept!(pf_state, Gen.metropolis_hastings, (head_direction_drift_proposal, 
             (t,deg2rad(5.0))), 50);
     PF.pf_move_accept!(pf_state, Gen.metropolis_hastings, (joint_pose_drift_proposal, 
             (t,[1.0 0.0;0.0 1.0] * 0.5, deg2rad(5.0))), 100);
+    
     PF.pf_move_accept!(pf_state, Gen.metropolis_hastings, (position_drift_proposal, 
             (t,[1.0 0.0;0.0 1.0] * 0.5)), 50);
     PF.pf_move_accept!(pf_state, Gen.metropolis_hastings, (head_direction_drift_proposal, 
@@ -368,8 +423,22 @@ end
 
 order = sortperm(pf_state.log_weights,rev=true)
 best_tr = pf_state.traces[order[1]]
-viz_trace(best_tr, [1,2,3])
+viz_trace(best_tr, [1,2,3,4,5])
 # viz_pose(get_pose(best_tr,1))
+
+viz_trace(tr_gt, [1,2,3,4,5])
+
+pf_state.traces
+
+z = Gen.logsumexp(pf_state.log_weights)
+log_weights = pf_state.log_weights .- z
+weights = exp.(log_weights)
+@show sum(weights)
+weights
+
+
+
+
 
 
 
