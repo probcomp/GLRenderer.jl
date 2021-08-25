@@ -316,6 +316,12 @@ function get_corners(sense)
         i,j = s-2, s-1
         k,l = s+2, s+1
         
+        # Alternative Check
+        # check_valid(idx) = (idx > 0 ) && (idx  <= size(cloud)[2])
+        # if !all(map(check_valid, [i,j,k,l]))
+        #     continue
+        # end
+        
         if i > 0 && i <= size(cloud)[2] && j > 0  && j <= size(cloud)[2] && k > 0 && k <= size(cloud)[2] && l > 0 && l <= size(cloud)[2]
             a,b,c,d = cloud[:,i],cloud[:,j],cloud[:,k],cloud[:,l]
             d1 =  a.-b
