@@ -294,10 +294,6 @@ tr_gt[pose_addr(36)]
 
 viz_trace(tr_gt, 36)
 
-
-
-
-
 # # Corner Detection
 
 PL.plot()
@@ -376,15 +372,16 @@ for c in corners
         push!(poses, p)
     end
 end
+poses_geometry = copy(poses)
 # -
 
 PL.plot()
 viz_env()
 for p in poses
-   viz_pose(p) 
+    viz_pose(p)
 end
 for c in gt_corners
-   viz_corner(c) 
+    viz_corner(c) 
 end
 PL.plot!()
 
@@ -419,7 +416,6 @@ end
 # # Inference
 
 # +
-# T = T_gen
 T = 36
 constraints = 
     Gen.choicemap(
@@ -583,11 +579,9 @@ end
 
 PL.plot()
 order = sortperm(pf_state.log_weights,rev=true)
-# best_tr = pf_state.traces[order[end]]
+
 for tr_idx in 1:8  # length(pf_state.traces)
-#     println(tr_idx)
     trac = pf_state.traces[order[tr_idx]]
-    #println(trac)
     viz_trace2(trac, 1:T)
 end
 PL.plot!()
@@ -615,6 +609,8 @@ pts_mat = vcat(hcat(pts...))
 cluster_r = kmeans(pts_mat, 4; maxiter=200, display=:iter)
 
 # +
+using StaticArrays
+
 import PyPlot
 plt = PyPlot.plt
 
@@ -622,17 +618,24 @@ println(cluster_r.counts)
 println(cluster_r.centers)
 plt.figure(figsize=(4,4)); plt.gca().set_aspect(1.);
 
+# Visualize inference cluster centers in red
 vals = cluster_r.counts/maximum(cluster_r.counts)
-
 plt.scatter(cluster_r.centers[1, :], cluster_r.centers[3, :], c="red", marker="o", alpha=vals)
-for p in poses
-#     println(p)
+
+# Visualize geometry points and orientations for comparison in gray
+for p in poses_geometry
+    println(p)
     plt.scatter(p.pos[1], p.pos[3], c="lightgray", marker="o")
+    
+    # TODO @Nishad: Please double check this is what orientation means
+    # I use orientation to rotate unit vector (0, 0, 1) and project result (x,y,z) to (x,z)
+    # But I'm not sure about the scene geometry in GLRenderer
+    base_vector = MVector{3,Float64}(0.0, 0.0, 1.0)
+    ray = MVector{3,Float64}(p.orientation * base_vector)
+    plt.quiver([p.pos[1]], [p.pos[3]], [ray[1]], [ray[3]],
+                   color=["b"], angles="xy", scale_units="xy", scale=1.0, label="View")
 end
 # -
-for p in poses
-    println(p.pos)
-end
 
 
 
@@ -647,11 +650,6 @@ end
 
 
 
-
-
-order = sortperm(pf_state.log_weights,rev=true)
-best_tr = pf_state.traces[order[1]]
-viz_trace(best_tr, 1:max_t)
 
 
 
