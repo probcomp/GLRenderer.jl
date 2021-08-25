@@ -81,7 +81,7 @@ PL.scatter!(v4[:,1],v4[:,3],label="")
 
 =======
 room_cloud = hcat(room_cloud...)
-PL.scatter(room_cloud[1,:],room_cloud[3,:],label="")
+PL.scatter(room_cloud[1,:], room_cloud[3,:], label="")
 # -
 
 v,n,f = GL.mesh_from_voxelized_cloud(GL.voxelize(room_cloud, resolution), resolution)
@@ -202,7 +202,8 @@ room_bounds_uniform_params = [room_width_bounds[1] room_width_bounds[2];room_hei
     if t==1
         pose ~ pose_uniform(room_bounds[1,:],room_bounds[2,:])
     else
-        pose ~ pose_gaussian(prev_data.pose, [1.0 0.0;0.0 1.0] * 0.1, deg2rad(20.0))
+        # Note: deg2rad() here gives how far agent rotates
+        pose ~ pose_gaussian(prev_data.pose, [1.0 0.0;0.0 1.0] * 0.1, deg2rad(10.0))
     end
     rgb, depth = GL.gl_render(renderer, 
      [1,2,3,4], [P.IDENTITY_POSE, P.IDENTITY_POSE,P.IDENTITY_POSE,P.IDENTITY_POSE],
@@ -276,18 +277,26 @@ function viz_corner(corner_pose)
     PL.scatter!([corner_pose.pos[1]], [corner_pose.pos[3]], label=false)
     pos = corner_pose.pos
     direction = corner_pose.orientation * [1.0, 0.0, 0.0]
-    PL.plot!([pos[1], pos[1]+direction[1]],[pos[3], pos[3]+direction[3]],arrow=true,color=:red,linewidth=2, label=false)
+    PL.plot!([pos[1], pos[1]+direction[1]],[pos[3], pos[3]+direction[3]], arrow=true, color=:red,linewidth=2, label=false)
 end
 
 # +
 # constraints = Gen.choicemap(:pos=>[0.0, 0.0], :hd=>pi/4)
 
-T_gen = 12
+T_gen = 36
 
 import LinearAlgebra
 cov = Matrix{Float64}(LinearAlgebra.I, camera_intrinsics.width, camera_intrinsics.width) * 0.01;
 tr_gt, w = Gen.generate(slam_multi_timestep, (5, nothing, room_bounds_uniform_params, wall_colors, cov,));
 viz_trace(tr_gt,1)
+
+tr_gt[pose_addr(36)]
+
+viz_trace(tr_gt, 36)
+
+
+
+
 
 # # Corner Detection
 
@@ -297,7 +306,7 @@ corner_1 = P.Pose([room_width_bounds[1], 0.0, room_height_bounds[1]], R.RotY(-pi
 corner_2 = P.Pose([room_width_bounds[1], 0.0, room_height_bounds[2]], R.RotY(pi/4))
 corner_3 = P.Pose([room_width_bounds[2], 0.0, room_height_bounds[1]], R.RotY(pi+pi/4))
 corner_4 = P.Pose([room_width_bounds[2], 0.0, room_height_bounds[2]], R.RotY(pi-pi/4))
-gt_corners = [corner_1,corner_2,corner_3,corner_4]
+gt_corners = [corner_1, corner_2, corner_3, corner_4]
 for c in gt_corners
     viz_corner(c)
 end
@@ -315,142 +324,10 @@ function get_corners(sense)
     corners = []
     
     for s in spikes
-        i,j = s-2,s-1
-        k,l = s+2,s+1
-        check_valid(idx) = (idx > 0 ) && (idx  <= size(cloud)[2])
-        if !all(map(check_valid, [i,j,k,l]))
-            continue
-        end
-            
+        i,j = s-2, s-1
+        k,l = s+2, s+1
         
-        a,b,c,d = cloud[:,i],cloud[:,j],cloud[:,k],cloud[:,l]
-        d1 =  a.-b
-        d2 =  c.-d
-        d1 = d1 / LinearAlgebra.norm(d1)
-        d2 = d2 / LinearAlgebra.norm(d2)
-        dir = (d1 .+ d2) ./ 2
-
-        function intersection(a,b,c,d)
-            a1 = b[2] - a[2]
-            b1 = a[1] - b[1]
-            c1 = a1 * a[1] + b1 * a[2]
-
-            a2 = d[2] - c[2]
-            b2 = c[1] - d[1]
-            c2 = a2 * c[1] + b2 * c[2]
-
-            Δ = a1 * b2 - a2 * b1
-            # If lines are parallel, intersection point will contain infinite values
-            return (b2 * c1 - b1 * c2) / Δ, (a1 * c2 - a2 * c1) / Δ
-        end
-        corner = intersection(a,b,c,d)
-        corner_pose = P.Pose([corner[1], 0.0, corner[2]], R.RotY(-atan(dir[2],dir[1])))
-        push!(corners, corner_pose)
-    end
-    corners
-end
-
-sense = get_depth(tr_gt,1)
-corners = get_corners(sense)
-cloud = GL.flatten_point_cloud(GL.depth_image_to_point_cloud(reshape(sense,(camera_intrinsics.height, camera_intrinsics.width)), camera_intrinsics))
-PL.scatter(cloud[1,:], cloud[3,:])
-for c in corners
-    viz_corner(c)
-end
-PL.plot!(xlim=(-10,10),ylim=(-10,10), aspect_ratio=:equal)
-
-# +
-sense = get_depth(tr_gt,1)
-
-corners = get_corners(sense)
-poses = []
-for c in corners
-    for c2 in gt_corners
-        p = c2 * inv(c)
-        push!(poses, p)
-    end
-end
-
-PL.plot()
-viz_env()
-for p in poses
-   viz_pose(p) 
-end
-for c in gt_corners
-   viz_corner(c) 
-end
-PL.plot!()
-
-# +
-mixture_of_pose_gaussians = Gen.HomogeneousMixture(pose_gaussian, [0, 2, 0])
-
-@Gen.gen function pose_mixture_proposal(trace, poses, t, cov, var)
-    n = length(poses)
-    weights = ones(n) ./ n
-    {pose_addr(t)} ~ mixture_of_pose_gaussians(
-        weights, poses, cat([cov for _ in 1:n]..., dims=3), [var for _ in 1:n]
-    )
-end
-# -
-
-# # Drift Moves
-
-# +
-@Gen.gen function position_drift_proposal(trace, t,cov)
-   {pose_addr(t)} ~ pose_gaussian(trace[pose_addr(t)], cov, 0.0001) 
-end
-
-@Gen.gen function head_direction_drift_proposal(trace, t,var)
-   {pose_addr(t)} ~ pose_gaussian(trace[pose_addr(t)], [1.0 0.0;0.0 1.0] * 0.00001, var) 
-end
-
-@Gen.gen function joint_pose_drift_proposal(trace, t, cov, var)
-   {pose_addr(t)} ~ pose_gaussian(trace[pose_addr(t)], cov, var) 
-end
-# -
-
-# # Inference
-
-# +
-# T = T_gen
-T = 12  # TODO 7 or above will cause error 3 cells down - why?
-constraints = 
-    Gen.choicemap(
-        pose_addr(1)=>P.Pose([-3.0, 0.0, -1.0], R.RotY(pi+pi/4))
-    )
-for t in 2:T
-    constraints[pose_addr(t)] = constraints[pose_addr(t-1)] * P.Pose(zeros(3), R.RotY(deg2rad(25.0)))
-end
-
-import LinearAlgebra
-<<<<<<< HEAD
-# wall_colors = [I.colorant"red",I.colorant"green",I.colorant"blue",I.colorant"yellow"]
-wall_colors = [I.colorant"red",I.colorant"red",I.colorant"red",I.colorant"red"]
-cov = Matrix{Float64}(LinearAlgebra.I, camera_intrinsics.width, camera_intrinsics.width) * 0.5;
-tr_gt, w = Gen.generate(slam_multi_timestep, (T, nothing, room_bounds_uniform_params,wall_colors,cov,), constraints);
-@show Gen.get_score(tr_gt)
-viz_trace(tr_gt, [1])
-=======
-I = Matrix{Float64}(LinearAlgebra.I, camera_intrinsics.width, camera_intrinsics.width) * 0.1;
-tr_gt, w = Gen.generate(slam_multi_timestep, (T, nothing, room_bounds_uniform_params,I,), constraints);
-viz_trace(tr_gt, [2])
->>>>>>> b9b7409... Potential mode collapse
-
-# +
-function get_corners2(sense)
-    cloud = GL.flatten_point_cloud(GL.depth_image_to_point_cloud(reshape(sense,(camera_intrinsics.height, camera_intrinsics.width)), camera_intrinsics))
-    cloud = vcat(cloud[1,:]', cloud[3,:]')
-    deltas = diff(cloud,dims=2)
-    dirs = map(x->R.RotMatrix{2,Float32}(atan(x[2],x[1])), eachcol(deltas))
-    angle_errors = [abs.(R.rotation_angle(inv(dirs[i])*dirs[i+1])) for i in 1:length(dirs)-1]
-    spikes = findall(angle_errors .> deg2rad(45.0))
-    spikes .+= 1
-    corners = []
-    
-    for s in spikes
-        i,j = s-2,s-1
-        k,l = s+2,s+1
-        if i > 0 && j > 0 && k > 0 && l > 0
+        if i > 0 && i <= size(cloud)[2] && j > 0  && j <= size(cloud)[2] && k > 0 && k <= size(cloud)[2] && l > 0 && l <= size(cloud)[2]
             a,b,c,d = cloud[:,i],cloud[:,j],cloud[:,k],cloud[:,l]
             d1 =  a.-b
             d2 =  c.-d
@@ -479,7 +356,98 @@ function get_corners2(sense)
     corners
 end
 
-corners = get_corners2(get_depth(tr_gt,1))
+sense = get_depth(tr_gt, 1)
+corners = get_corners(sense)
+cloud = GL.flatten_point_cloud(GL.depth_image_to_point_cloud(reshape(sense,(camera_intrinsics.height, camera_intrinsics.width)), camera_intrinsics))
+PL.scatter(cloud[1, :], cloud[3, :])
+for c in corners
+    viz_corner(c)
+end
+PL.plot!(xlim=(-10,10), ylim=(-10,10), aspect_ratio=:equal)
+
+# +
+sense = get_depth(tr_gt, 1)
+
+corners = get_corners(sense)
+poses = []
+for c in corners
+    for c2 in gt_corners
+        p = c2 * inv(c)
+        push!(poses, p)
+    end
+end
+# -
+
+PL.plot()
+viz_env()
+for p in poses
+   viz_pose(p) 
+end
+for c in gt_corners
+   viz_corner(c) 
+end
+PL.plot!()
+
+# +
+mixture_of_pose_gaussians = Gen.HomogeneousMixture(pose_gaussian, [0, 2, 0])
+
+@Gen.gen function pose_mixture_proposal(trace, poses, t, cov, var)
+    n = length(poses)
+    weights = ones(n) ./ n
+    {pose_addr(t)} ~ mixture_of_pose_gaussians(
+        weights, poses, cat([cov for _ in 1:n]..., dims=3), [var for _ in 1:n]
+    )
+end
+# -
+
+# # Drift Moves
+
+# +
+@Gen.gen function position_drift_proposal(trace, t, cov)
+   {pose_addr(t)} ~ pose_gaussian(trace[pose_addr(t)], cov, 0.0001) 
+end
+
+@Gen.gen function head_direction_drift_proposal(trace, t, var)
+   {pose_addr(t)} ~ pose_gaussian(trace[pose_addr(t)], [1.0 0.0;0.0 1.0] * 0.00001, var) 
+end
+
+@Gen.gen function joint_pose_drift_proposal(trace, t, cov, var)
+   {pose_addr(t)} ~ pose_gaussian(trace[pose_addr(t)], cov, var) 
+end
+# -
+
+# # Inference
+
+# +
+# T = T_gen
+T = 36
+constraints = 
+    Gen.choicemap(
+        pose_addr(1)=>P.Pose([-3.0, 0.0, -1.0], R.RotY(pi+pi/4))
+    )
+for t in 2:T
+    # deg2rad(25.0)
+    constraints[pose_addr(t)] = constraints[pose_addr(t-1)] * P.Pose(zeros(3), R.RotY(deg2rad(10.0)))
+end
+
+import LinearAlgebra
+<<<<<<< HEAD
+# wall_colors = [I.colorant"red",I.colorant"green",I.colorant"blue",I.colorant"yellow"]
+wall_colors = [I.colorant"red",I.colorant"red",I.colorant"red",I.colorant"red"]
+cov = Matrix{Float64}(LinearAlgebra.I, camera_intrinsics.width, camera_intrinsics.width) * 0.5;
+tr_gt, w = Gen.generate(slam_multi_timestep, (T, nothing, room_bounds_uniform_params,wall_colors,cov,), constraints);
+@show Gen.get_score(tr_gt)
+viz_trace(tr_gt, [1])
+=======
+I = Matrix{Float64}(LinearAlgebra.I, camera_intrinsics.width, camera_intrinsics.width) * 0.1;
+tr_gt, w = Gen.generate(slam_multi_timestep, (T, nothing, room_bounds_uniform_params,I,), constraints);
+viz_trace(tr_gt, [2])
+# -
+
+viz_trace(tr_gt, [25])
+
+# +
+corners = get_corners(get_depth(tr_gt,1))
 poses = []
 for c in corners
     for c2 in gt_corners
@@ -549,6 +517,9 @@ PF.pf_move_accept!(pf_state, Gen.metropolis_hastings, (joint_pose_drift_proposal
 
 # +
 for t in 2:T
+    
+    # PF.pf_resample!(pf_state, :residual) would lead to mode collapse
+    
     PF.pf_update!(pf_state,
                   (t, Gen.get_args(tr_gt)[2:end]...),
                   (Gen.UnknownChange(),[Gen.NoChange() for _ in 1:(length(Gen.get_args(tr_gt))-1)]...),
@@ -557,7 +528,7 @@ for t in 2:T
 
     
     # Geometrically computed pose proposal
-    corners = get_corners2(get_depth(tr_gt, t))  # get_corners(get_depth(tr_gt, t))
+    corners = get_corners(get_depth(tr_gt, t))
     poses = []
     for c in corners
         for c2 in gt_corners
@@ -583,7 +554,6 @@ for t in 2:T
     PF.pf_move_accept!(pf_state, Gen.metropolis_hastings, (joint_pose_drift_proposal, 
             (t,[1.0 0.0;0.0 1.0] * 0.5, deg2rad(5.0))), 10);
 end
-# -
 
 order = sortperm(pf_state.log_weights,rev=true)
 
@@ -612,9 +582,11 @@ function viz_trace2(tr, ts)
 end
 
 PL.plot()
-for tr_idx in 1:length(pf_state.traces)
+order = sortperm(pf_state.log_weights,rev=true)
+# best_tr = pf_state.traces[order[end]]
+for tr_idx in 1:8  # length(pf_state.traces)
 #     println(tr_idx)
-    trac = pf_state.traces[tr_idx]
+    trac = pf_state.traces[order[tr_idx]]
     #println(trac)
     viz_trace2(trac, 1:T)
 end
@@ -640,20 +612,40 @@ pts = collect_points(pf_state.traces, T);
 # -
 
 pts_mat = vcat(hcat(pts...))
-R = kmeans(pts_mat, 4; maxiter=200, display=:iter)
+cluster_r = kmeans(pts_mat, 4; maxiter=200, display=:iter)
 
 # +
 import PyPlot
 plt = PyPlot.plt
 
-println(R.counts)
-println(R.centers)
+println(cluster_r.counts)
+println(cluster_r.centers)
 plt.figure(figsize=(4,4)); plt.gca().set_aspect(1.);
 
-vals = R.counts/maximum(R.counts)
+vals = cluster_r.counts/maximum(cluster_r.counts)
 
-plt.scatter(R.centers[1, :], R.centers[3, :], c="red", marker="o", alpha=vals)
+plt.scatter(cluster_r.centers[1, :], cluster_r.centers[3, :], c="red", marker="o", alpha=vals)
+for p in poses
+#     println(p)
+    plt.scatter(p.pos[1], p.pos[3], c="lightgray", marker="o")
+end
 # -
+for p in poses
+    println(p.pos)
+end
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
