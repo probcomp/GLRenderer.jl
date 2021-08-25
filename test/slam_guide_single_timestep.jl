@@ -18,9 +18,6 @@ P = PoseComposition
 GL = GLRenderer
 # -
 
-import Plots
-PL = Plots
-
 Revise.errors()
 Revise.revise()
 
@@ -40,7 +37,7 @@ GL.load_object!(renderer, v,n,f)
 renderer.gl_instance.lightpos = [0,0,0]
 rgb_image, depth_image = GL.gl_render(renderer, 
     [1], [P.Pose([0.0, 0.0, 4.0], R.RotXYZ(0.0, 0.0, 0.0))], 
-    [I.colorant"red"],
+    [I.colorant"green"],
     P.IDENTITY_POSE)
 I.colorview(I.RGBA, permutedims(rgb_image,(3,1,2)))
 
@@ -49,36 +46,49 @@ room_height_bounds = (-5.0, 5.0)
 room_width_bounds = (-8.0, 8.0)
 
 resolution = 0.1
-room_cloud = []
+room_cloud_1 = []
+room_cloud_2 = []
+room_cloud_3 = []
+room_cloud_4 = []
 
 for z in room_height_bounds[1]:resolution/2.0:room_height_bounds[2]
-    push!(room_cloud, [room_width_bounds[1], 0.0, z])
-    push!(room_cloud, [room_width_bounds[2], 0.0, z])
+    push!(room_cloud_1, [room_width_bounds[1], 0.0, z])
+    push!(room_cloud_2, [room_width_bounds[2], 0.0, z])
 end
 for x in room_width_bounds[1]:resolution/2.0:room_width_bounds[2]
-    push!(room_cloud, [x, 0.0, room_height_bounds[1]])
-    push!(room_cloud, [x, 0.0, room_height_bounds[2]])
+    push!(room_cloud_3, [x, 0.0, room_height_bounds[1]])
+    push!(room_cloud_4, [x, 0.0, room_height_bounds[2]])
 end
-room_cloud = hcat(room_cloud...)
-PL.scatter(room_cloud[1,:],room_cloud[3,:],label="")
+v1,n1,f1 = GL.mesh_from_voxelized_cloud(GL.voxelize(hcat(room_cloud_1...), resolution), resolution)
+v2,n2,f2 = GL.mesh_from_voxelized_cloud(GL.voxelize(hcat(room_cloud_2...), resolution), resolution)
+v3,n3,f3 = GL.mesh_from_voxelized_cloud(GL.voxelize(hcat(room_cloud_3...), resolution), resolution)
+v4,n4,f4 = GL.mesh_from_voxelized_cloud(GL.voxelize(hcat(room_cloud_4...), resolution), resolution)
 
+room_cloud = hcat(room_cloud_1...,room_cloud_2...,room_cloud_3...,room_cloud_4...)
+
+PL.scatter(v1[:,1],v1[:,3],label="")
+PL.scatter!(v2[:,1],v2[:,3],label="")
+PL.scatter!(v3[:,1],v3[:,3],label="")
+PL.scatter!(v4[:,1],v4[:,3],label="")
 # -
 
-v
-
-v,n,f = GL.mesh_from_voxelized_cloud(GL.voxelize(room_cloud, resolution), resolution)
 renderer = GL.setup_renderer(Geometry.CameraIntrinsics(
     600, 600,
     300.0, 300.0,
     300.0,300.0,
-    0.1, 50.0
-), GL.DepthMode())
-GL.load_object!(renderer, v, f)
+    0.1, 60.0
+), GL.RGBMode())
+GL.load_object!(renderer, v3, n3, f3)
+GL.load_object!(renderer, v4, n4, f4)
+GL.load_object!(renderer, v2, n2, f2)
+GL.load_object!(renderer, v1, n1, f1)
 renderer.gl_instance.lightpos = [0,0,0]
-depth = GL.gl_render(renderer, 
-    [1], [P.IDENTITY_POSE], 
+rgb, depth = GL.gl_render(renderer, 
+    [1,2,3,4], [P.IDENTITY_POSE, P.IDENTITY_POSE,P.IDENTITY_POSE,P.IDENTITY_POSE],
+    [I.colorant"red",I.colorant"green",I.colorant"blue",I.colorant"yellow"],
     P.Pose([0.0, -10.0, 0.0], R.RotX(-pi/2)))
-PL.heatmap(depth, aspect_ratio=:equal)
+# PL.heatmap(depth, aspect_ratio=:equal)
+I.colorview(I.RGBA,permutedims(rgb,(3,1,2)))
 
 # +
 camera_intrinsics = Geometry.CameraIntrinsics(
@@ -87,16 +97,27 @@ camera_intrinsics = Geometry.CameraIntrinsics(
     7.0, 0.5,
     0.1, 20.0
 )
-renderer = GL.setup_renderer(camera_intrinsics, GL.DepthMode())
-GL.load_object!(renderer, v, f)
+renderer = GL.setup_renderer(camera_intrinsics, GL.RGBMode())
+GL.load_object!(renderer, v3, n3, f3)
+GL.load_object!(renderer, v4, n4, f4)
+GL.load_object!(renderer, v2, n2, f2)
+GL.load_object!(renderer, v1, n1, f1)
 renderer.gl_instance.lightpos = [0,0,0]
 
-cam_pose = P.IDENTITY_POSE
-@time depth = GL.gl_render(renderer, 
-    [1], [P.IDENTITY_POSE], cam_pose)
-cloud = GL.flatten_point_cloud(GL.depth_image_to_point_cloud(depth, camera_intrinsics))
-@show size(depth)
+
+cam_pose = P.Pose(zeros(3),R.RotY(-pi/4+ 1.0))
+wall_colors = [I.colorant"red",I.colorant"green",I.colorant"blue",I.colorant"yellow"]
+# wall_colors = [I.colorant"red",I.colorant"red",I.colorant"red",I.colorant"red"]
+@time rgb, depth = GL.gl_render(renderer, 
+     [1,2,3,4], [P.IDENTITY_POSE, P.IDENTITY_POSE,P.IDENTITY_POSE,P.IDENTITY_POSE],
+    wall_colors, 
+    cam_pose)
 PL.heatmap(depth)
+
+img = I.colorview(I.RGB,permutedims(rgb,(3,1,2))[1:3,:,:])
+color = map(argmin, eachcol(vcat([I.colordiff.(img, c) for c in wall_colors]...)))
+@show color 
+img
 # -
 
 import Gen
@@ -108,14 +129,14 @@ const pose_uniform = PoseUniform()
 function Gen.random(::PoseUniform, bounds_x, bounds_z)
     x = rand(Distributions.Uniform(bounds_x...))
     z = rand(Distributions.Uniform(bounds_z...))
-    hd = rand(Distributions.Uniform(0.0, 2*pi))
+    hd = rand(Distributions.Uniform(-2*pi, 2*pi))
     P.Pose([x, 0.0, z], R.RotY(hd))
 end
 function Gen.logpdf(::PoseUniform, pose::P.Pose, bounds_x, bounds_z)
     (
         Gen.logpdf(Gen.uniform, pose.pos[1], bounds_x...) +
         Gen.logpdf(Gen.uniform, pose.pos[3], bounds_z...) +
-        Gen.logpdf(Gen.uniform, R.RotY(pose.orientation).theta, 0.0, 2*pi)
+        Gen.logpdf(Gen.uniform, R.RotY(pose.orientation).theta, -2*pi, 2*pi)
     )   
 end
 
@@ -138,43 +159,68 @@ function Gen.logpdf(::PoseGaussian, pose::P.Pose, center_pose::P.Pose, cov, var)
     )   
 end
 
+
+struct ColorDistribution <: Gen.Distribution{Array{<:Real}} end
+const color_distribution = ColorDistribution()
+function Gen.random(::ColorDistribution, color, p)
+    # This is incorrect
+    color
+end
+function Gen.logpdf(::ColorDistribution, obs_color, color, p)
+    n = length(wall_colors)
+    img = Images.colorview(Images.RGB,permutedims(obs_color, (3,1,2))[1:3,:,:])
+    obs = map(argmin, eachcol(vcat([I.colordiff.(img, c) for c in wall_colors]...)))
+    
+    img = Images.colorview(Images.RGB,permutedims(color, (3,1,2))[1:3,:,:])
+    base = map(argmin, eachcol(vcat([I.colordiff.(img, c) for c in wall_colors]...)))
+    
+    disagree = sum(base .!= obs)
+    agree = sum(base .== obs)
+    
+    agree * log(p) + disagree * log( (1-p)/(n-1))
+end
 # -
 
 room_bounds_uniform_params = [room_width_bounds[1] room_width_bounds[2];room_height_bounds[1] room_height_bounds[2]]
 
 # +
-@Gen.gen function slam_unfold_kernel(t, prev_data, room_bounds, I)
+@Gen.gen function slam_unfold_kernel(t, prev_data, room_bounds, wall_colors, cov)
     if t==1
         pose ~ pose_uniform(room_bounds[1,:],room_bounds[2,:])
     else
         pose ~ pose_gaussian(prev_data.pose, [1.0 0.0;0.0 1.0] * 0.1, deg2rad(20.0))
     end
-    depth = GL.gl_render(renderer, 
-        [1], [P.IDENTITY_POSE], pose)    
+    rgb, depth = GL.gl_render(renderer, 
+     [1,2,3,4], [P.IDENTITY_POSE, P.IDENTITY_POSE,P.IDENTITY_POSE,P.IDENTITY_POSE],
+    wall_colors, 
+    pose)
     
-    sense ~ Gen.mvnormal(depth[1,:], I)
-    return (pose=pose, depth=depth, sense=sense)
+    sense_depth ~ Gen.mvnormal(depth[1,:], cov)
+    sense_rgb ~ color_distribution(rgb, 0.999)
+    return (pose=pose, rgb=rgb, depth=depth, sense_depth=sense_depth, sense_rgb=sense_rgb)
 end
 
 slam_unfolded = Gen.Unfold(slam_unfold_kernel)
 
-@Gen.gen (static) function slam_multi_timestep(T, prev_data, room_bounds, I)
-    slam ~ slam_unfolded(T, prev_data, room_bounds, I)
+@Gen.gen (static) function slam_multi_timestep(T, prev_data, room_bounds, wall_colors, cov)
+    slam ~ slam_unfolded(T, prev_data, room_bounds, wall_colors, cov)
     return slam
 end
 
 
-sense_addr(t) = (:slam => t => :sense)
+sense_rgb_addr(t) = (:slam => t => :sense_rgb)
+sense_depth_addr(t) = (:slam => t => :sense_depth)
 pose_addr(t) = (:slam => t => :pose)
 get_pose(tr,t) = tr[pose_addr(t)]
 get_depth(tr,t) = Gen.get_retval(tr)[t].depth
-get_sense(tr,t) = tr[sense_addr(t)]
-
+get_rgb(tr,t) = Gen.get_retval(tr)[t].rgb
+get_sense_rgb(tr,t) = tr[sense_rgb_addr(t)]
+get_sense_depth(tr,t) = tr[sense_depth_addr(t)]
 
 Gen.@load_generated_functions
 
 function viz_env()
-    PL.scatter!(room_cloud[1,:], room_cloud[3,:], label=false)
+    PL.scatter(room_cloud[1,:], room_cloud[3,:], label=false)
 end
 
 function viz_pose(pose)
@@ -190,7 +236,7 @@ end
 function viz_obs(tr,t)
     pose = get_pose(tr,t)
     depth = get_depth(tr,t)
-    sense = get_sense(tr,t)
+    sense = get_sense_depth(tr,t)
     
     cloud = GL.flatten_point_cloud(GL.depth_image_to_point_cloud(depth, camera_intrinsics))
     cloud = GL.move_points_to_frame_b(cloud, pose)
@@ -222,8 +268,8 @@ end
 
 # constraints = Gen.choicemap(:pos=>[0.0, 0.0], :hd=>pi/4)
 import LinearAlgebra
-I = Matrix{Float64}(LinearAlgebra.I, camera_intrinsics.width, camera_intrinsics.width) * 0.01;
-tr_gt, w = Gen.generate(slam_multi_timestep, (5, nothing, room_bounds_uniform_params,I,));
+cov = Matrix{Float64}(LinearAlgebra.I, camera_intrinsics.width, camera_intrinsics.width) * 0.01;
+tr_gt, w = Gen.generate(slam_multi_timestep, (5, nothing, room_bounds_uniform_params, wall_colors, cov,));
 viz_trace(tr_gt,1)
 
 # # Corner Detection
@@ -254,6 +300,12 @@ function get_corners(sense)
     for s in spikes
         i,j = s-2,s-1
         k,l = s+2,s+1
+        check_valid(idx) = (idx > 0 ) && (idx  <= size(cloud)[2])
+        if !all(map(check_valid, [i,j,k,l]))
+            continue
+        end
+            
+        
         a,b,c,d = cloud[:,i],cloud[:,j],cloud[:,k],cloud[:,l]
         d1 =  a.-b
         d2 =  c.-d
@@ -346,15 +398,18 @@ end
 T = 5
 constraints = 
     Gen.choicemap(
-        pose_addr(1)=>P.Pose([3.0, 0.0, 3.0], R.RotY(pi/4))
+        pose_addr(1)=>P.Pose([-3.0, 0.0, -1.0], R.RotY(pi+pi/4))
     )
 for t in 2:T
     constraints[pose_addr(t)] = constraints[pose_addr(t-1)] * P.Pose(zeros(3), R.RotY(deg2rad(25.0)))
 end
 
 import LinearAlgebra
-I = Matrix{Float64}(LinearAlgebra.I, camera_intrinsics.width, camera_intrinsics.width) * 0.1;
-tr_gt, w = Gen.generate(slam_multi_timestep, (T, nothing, room_bounds_uniform_params,I,), constraints);
+# wall_colors = [I.colorant"red",I.colorant"green",I.colorant"blue",I.colorant"yellow"]
+wall_colors = [I.colorant"red",I.colorant"red",I.colorant"red",I.colorant"red"]
+cov = Matrix{Float64}(LinearAlgebra.I, camera_intrinsics.width, camera_intrinsics.width) * 0.5;
+tr_gt, w = Gen.generate(slam_multi_timestep, (T, nothing, room_bounds_uniform_params,wall_colors,cov,), constraints);
+@show Gen.get_score(tr_gt)
 viz_trace(tr_gt, [1])
 
 # +
@@ -369,28 +424,69 @@ end
 
 t = 1
 @time pf_state = PF.pf_initialize(slam_multi_timestep,
-    (1,Gen.get_args(tr_gt)[2:end]...), Gen.choicemap(sense_addr(t) => get_depth(tr_gt,t)[:]), 
-    pose_mixture_proposal, (nothing, poses, 1,[1.0 0.0;0.0 1.0] * 0.01, deg2rad(1.0)),
-    10);
+    (1,Gen.get_args(tr_gt)[2:end]...),
+    Gen.choicemap(sense_depth_addr(t) => get_depth(tr_gt,t)[:], sense_rgb_addr(t) => get_rgb(tr_gt,t)),
+    pose_mixture_proposal, (nothing, poses, 1,[1.0 0.0;0.0 1.0] * 0.05, deg2rad(2.0)),
+    100);
 
 PF.pf_move_accept!(pf_state, Gen.metropolis_hastings, (position_drift_proposal, 
-        (t,[1.0 0.0;0.0 1.0] * 0.5)), 50);
+        (t,[1.0 0.0;0.0 1.0] * 0.1)), 10);
 PF.pf_move_accept!(pf_state, Gen.metropolis_hastings, (head_direction_drift_proposal, 
-        (t,deg2rad(5.0))), 50);
+        (t,deg2rad(1.0))), 10);
 PF.pf_move_accept!(pf_state, Gen.metropolis_hastings, (joint_pose_drift_proposal, 
-        (t,[1.0 0.0;0.0 1.0] * 0.5, deg2rad(5.0))), 100);
+        (t,[1.0 0.0;0.0 1.0] * 0.1, deg2rad(1.0))), 10);
 # -
 
-best_idx = argmax(pf_state.log_weights)
-best_tr = pf_state.traces[best_idx]
+order = sortperm(pf_state.log_weights,rev=true)
+best_tr = pf_state.traces[order[3]]
+@show Gen.get_score(best_tr)
+@show Gen.project(best_tr, Gen.select(pose_addr(1)))
+pose = best_tr[pose_addr(1)]
+@show pose
 viz_trace(best_tr, [1])
 # viz_pose(get_pose(best_tr,1))
+
+z = Gen.logsumexp(pf_state.log_weights)
+log_weights = pf_state.log_weights .- z
+weights = exp.(log_weights)
+@show sum(weights)
+weights
+
+tr = best_tr
+a=I.colorview(I.RGBA,permutedims(get_rgb(tr,1),(3,1,2)))
+b = I.colorview(I.RGBA,permutedims(get_sense_rgb(tr,1),(3,1,2)))
+vcat(a,b)
+
+# +
+corners = get_corners(get_depth(tr_gt,1))
+poses = []
+for c in corners
+    for c2 in gt_corners
+        p = c2 * inv(c)
+        push!(poses, p)
+    end
+end
+
+t = 1
+@time pf_state = PF.pf_initialize(slam_multi_timestep,
+    (1,Gen.get_args(tr_gt)[2:end]...),
+    Gen.choicemap(sense_depth_addr(t) => get_depth(tr_gt,t)[:], sense_rgb_addr(t) => get_rgb(tr_gt,t)),
+    pose_mixture_proposal, (nothing, poses, 1,[1.0 0.0;0.0 1.0] * 0.05, deg2rad(2.0)),
+    100);
+
+PF.pf_move_accept!(pf_state, Gen.metropolis_hastings, (position_drift_proposal, 
+        (t,[1.0 0.0;0.0 1.0] * 0.1)), 10);
+PF.pf_move_accept!(pf_state, Gen.metropolis_hastings, (head_direction_drift_proposal, 
+        (t,deg2rad(1.0))), 10);
+PF.pf_move_accept!(pf_state, Gen.metropolis_hastings, (joint_pose_drift_proposal, 
+        (t,[1.0 0.0;0.0 1.0] * 0.1, deg2rad(1.0))), 10);
 
 for t in 2:5
     PF.pf_update!(pf_state,
                   (t, Gen.get_args(tr_gt)[2:end]...),
                   (Gen.UnknownChange(),[Gen.NoChange() for _ in 1:(length(Gen.get_args(tr_gt))-1)]...),
-                   Gen.choicemap(sense_addr(t) => get_depth(tr_gt,t)[:]));
+    Gen.choicemap(sense_depth_addr(t) => get_depth(tr_gt,t)[:], sense_rgb_addr(t) => get_rgb(tr_gt,t)),
+    );
 
     
     # Geometrically computed pose proposal
@@ -403,32 +499,29 @@ for t in 2:5
         end
     end
     PF.pf_move_accept!(pf_state, Gen.metropolis_hastings, (pose_mixture_proposal, 
-            (poses, t, [1.0 0.0;0.0 1.0] * 0.05, deg2rad(5.0))), 10);
+            (poses, t, [1.0 0.0;0.0 1.0] * 0.05, deg2rad(2.0))), 10);
 
     # Drift Moves
     PF.pf_move_accept!(pf_state, Gen.metropolis_hastings, (position_drift_proposal, 
-            (t,[1.0 0.0;0.0 1.0] * 0.5)), 50);
+            (t,[1.0 0.0;0.0 1.0] * 0.5)), 10);
     PF.pf_move_accept!(pf_state, Gen.metropolis_hastings, (head_direction_drift_proposal, 
-            (t,deg2rad(5.0))), 50);
+            (t,deg2rad(5.0))), 10);
     PF.pf_move_accept!(pf_state, Gen.metropolis_hastings, (joint_pose_drift_proposal, 
-            (t,[1.0 0.0;0.0 1.0] * 0.5, deg2rad(5.0))), 100);
+            (t,[1.0 0.0;0.0 1.0] * 0.5, deg2rad(5.0))), 10);
     
     PF.pf_move_accept!(pf_state, Gen.metropolis_hastings, (position_drift_proposal, 
-            (t,[1.0 0.0;0.0 1.0] * 0.5)), 50);
+            (t,[1.0 0.0;0.0 1.0] * 0.5)), 10);
     PF.pf_move_accept!(pf_state, Gen.metropolis_hastings, (head_direction_drift_proposal, 
-            (t,deg2rad(5.0))), 50);
+            (t,deg2rad(5.0))), 10);
     PF.pf_move_accept!(pf_state, Gen.metropolis_hastings, (joint_pose_drift_proposal, 
-            (t,[1.0 0.0;0.0 1.0] * 0.5, deg2rad(5.0))), 100);
+            (t,[1.0 0.0;0.0 1.0] * 0.5, deg2rad(5.0))), 10);
 end
+# -
 
 order = sortperm(pf_state.log_weights,rev=true)
-best_tr = pf_state.traces[order[1]]
+best_tr = pf_state.traces[order[15]]
 viz_trace(best_tr, [1,2,3,4,5])
 # viz_pose(get_pose(best_tr,1))
-
-viz_trace(tr_gt, [1,2,3,4,5])
-
-pf_state.traces
 
 z = Gen.logsumexp(pf_state.log_weights)
 log_weights = pf_state.log_weights .- z

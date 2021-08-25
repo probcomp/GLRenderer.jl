@@ -148,7 +148,6 @@ class GLRenderer:
         out vec3 Normal;
         out vec3 FragPos;
         out vec3 Normal_cam;
-        out vec3 Instance_color;
         out vec3 Pos_cam;
         out vec3 Pos_obj;
         void main() {
@@ -161,7 +160,6 @@ class GLRenderer:
             Pos_cam = pos_cam4.xyz / pos_cam4.w;
             Pos_obj = position;
             theColor = color;
-            Instance_color = instance_color;
         }
         """, GL.GL_VERTEX_SHADER)
 
@@ -171,19 +169,18 @@ class GLRenderer:
         in vec3 Normal;
         in vec3 Normal_cam;
         in vec3 FragPos;
-        in vec3 Instance_color;
         in vec3 Pos_cam;
         in vec3 Pos_obj;
         layout (location = 0) out vec4 outputColour;
         uniform vec3 light_position;  // in world coordinate
         uniform vec3 light_color; // light color
         void main() {
-            float ambientStrength = 0.6;
+            float ambientStrength = 0.0;
             vec3 ambient = ambientStrength * light_color;
             vec3 lightDir = normalize(light_position - FragPos);
-            float diff = max(dot(Normal, lightDir), 0.0);
+            float diff = min(max(dot(Normal, lightDir), 0.0), 0.0);
             vec3 diffuse = diff * light_color;
-            outputColour =  vec4(theColor) * vec4(diffuse + ambient, 1);
+            outputColour =  vec4(theColor) + vec4(diffuse + ambient, 0.0);
         }
         """, GL.GL_FRAGMENT_SHADER)
 

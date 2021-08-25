@@ -26,22 +26,24 @@ pose = np.array([0.0, 0.0, 0.3, 1, 0, 0, 0])
 renderer = glrenderer.GLRenderer(640, 480, 500.0, 500.0, 320.0, 240.0, 0.01, 10.0, "depth")
 p = renderer.load_obj_parameters(obj_path)
 renderer.load_object(*p, None)
-depth = renderer.render([0], [pose])
-plt.matshow(depth); plt.colorbar(); plt.show()
+depth1 = renderer.render([0], [pose])
 
 
 
 renderer = glrenderer.GLRenderer(640, 480, 500.0, 500.0, 320.0, 240.0, 0.01, 10.0, "rgb")
 p = renderer.load_obj_parameters(obj_path)
 renderer.load_object(*p, texture_path)
-rgb, depth = renderer.render([0], [pose], [[1.0,0.0,0.0,1.0]])
-rgb = cv2.cvtColor(rgb, cv2.COLOR_BGRA2RGBA)
-plt.imshow(rgb); plt.colorbar(); plt.show()
+rgb1, depth = renderer.render([0], [pose], [[1.0,0.0,0.0,1.0]])
+rgb1 = cv2.cvtColor(rgb1, cv2.COLOR_BGRA2RGBA)
 
 
 renderer = glrenderer.GLRenderer(640, 480, 500.0, 500.0, 320.0, 240.0, 0.01, 10.0, "texture")
 p = renderer.load_obj_parameters(obj_path)
 renderer.load_object(*p, texture_path)
-rgb, depth = renderer.render([0], [pose])
-rgb = cv2.cvtColor(rgb, cv2.COLOR_BGRA2RGBA)
-plt.imshow(rgb); plt.colorbar(); plt.show()
+rgb2, depth = renderer.render([0], [pose])
+rgb2 = cv2.cvtColor(rgb2, cv2.COLOR_BGRA2RGBA)
+
+
+plt.matshow(depth1); plt.colorbar(); plt.show()
+plt.imshow(rgb1); plt.colorbar(); plt.show()
+plt.imshow(rgb2); plt.colorbar(); plt.show()
