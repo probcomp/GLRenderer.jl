@@ -27,10 +27,168 @@ GL = GLRenderer
 Revise.errors()
 Revise.revise()
 
+# See [SLAM PR to PRAM](https://github.com/probcomp/GenPRAM.jl/blob/slam_build_map/agent_experiments/slam_poc/slam_3d_all_in_one.ipynb) for example how to do edge detection against MCS.
+
+# +
+import PyPlot
+plt = PyPlot.plt
+
+using PyCall
+@pyimport machine_common_sense as mcs
+StepMetadata=mcs.StepMetadata
+ObjectMetadata=mcs.ObjectMetadata
+
+global numpy = pyimport("numpy")
+@pyimport numpy as np
+
+# +
+using Serialization
+using StaticArrays
+import GenGridSLAM: astar_search, backproject_grid_coord_to_world_coord, CameraIntrinsics, ccl, centroid_direction, centroid_direction_2, cloud_from_step_metadata,
+    cloud_to_grid_coords, compute_frontier,
+    convert_probabilistic_occupancy_grid_to_string_array, count_component_size,
+    create_2d_occupancy_grid_with_segment_ids, expand_2d_occupancy_grid_dict_into_full_matrix, find_closest_unexplored_component,
+    find_max_component, flip_array, generate_pddl, get_agent_grid_position_and_rotation, grid_coords_to_cloud, grid_xz_to_map_xz,
+    in_grid_bounds, map_xz_to_grid_xz,
+    OccupancyGrid, OccupancyGridConfig, pretty_print_occupancy_grid, pretty_print_occupancy_grid_string_array,
+    print_occupancy_grid, project_3d_occupancy_grid_into_2d_dict, render_occupancy_grid, render_occupancy_grid_oriented,
+    set_entry!, update_occupancy_grid!, project_3d_og_to_2d, generate_maps_2d_oriented, world_point_to_oriented_grid_coordinates
+
+pram_path = ENV["PRAM_PATH"]
+include("$(pram_path)/GenAgent/src/config/config.jl")
+include("$(pram_path)/GenAgent/src/state/agent.jl")
+include("$(pram_path)/GenAgent/src/submission.jl")
+
+scene_path="/home/falk/.julia/dev/GenPRAM.jl/test/test_scenes/rectangular_colored_walls_empty.json"
+mcs_executable_path="/home/falk/mitibm/AI2Thor_MCS/MCS-AI2-THOR-Unity-App-v0.4.3.x86_64"
+mcs_config_path="/home/falk/PycharmProjects/MCS/scripts/config_oracle.ini"
+
+config_data, status = mcs.load_scene_json_file(scene_path)
+controller = mcs.create_controller(unity_app_file_path=mcs_executable_path,
+                                   config_file_path=mcs_config_path)
+step_metadata = controller.start_scene(config_data)
+
+config = McsConfiguration()
+information_level = infer_information_level(step_metadata)
+
+intrinsics = CameraIntrinsics(step_metadata)
+agent = Agent(intrinsics, [step_metadata], [],
+              [Pose([0.0,0.0,0.0],  0.0, step_metadata.head_tilt)],
+              [], nothing, information_level, config)
+
+# Overwrite pram_mode so we don't need to deal with Redis etc.
+ENV["PRAM_MODE"] = "production"
+agent.config.compute_configuration.pram_mode = ENV["PRAM_MODE"]
+
+# Load target model
+trophy_model_path = joinpath(config.path_configuration.pram_path, "GenAgent/omg/models/soccer_ball.model")
+println("Loading trophy model from $(trophy_model_path).")
+trophy_model = deserialize(trophy_model_path)
+
+# +
+# Could use global information
+# function find_scanline(valid_index_mask)
+#     valid_rows = prod(valid_index_mask, dims=2)  # (400, 1) vector - pick index with value 1
+#     for row_idx in 1:size(valid_rows)[1]
+#         if valid_rows[row_idx]
+#             return row_idx
+#         end
+#     end
+#     return -1
+# end
+
+# """Beware: This function uses agent pose information that might not be available after kidnapping.
+# Based on `detect_corner_from_depth(Agent)`."""
+# function get_scanline(agent::Agent; verbose::Bool=false)
+#     step_metadata = agent.step_metadatas[end]
+#     pose = agent.poses[end]  # <-- Global pose information
+#     cloud = get_cloud(agent, step_metadata, pose, agent.intrinsics; stride_x=1, stride_y=1)
+    
+#     height_offset = 0.1
+#     min_height, max_height = minimum(cloud[2, :]) + height_offset, maximum(cloud[2, :]) - height_offset
+#     if verbose println("Height range: $(min_height) to $(max_height)") end
+    
+#     # Boolean mask for all pixels that are definitely not ceiling or floor
+#     valid_indices = (cloud[2,:] .> min_height) .& (cloud[2,:] .< max_height)
+#     valid_indices_2d = reshape(valid_indices, size(agent.step_metadatas[end].depth_map_list[end]))
+    
+#     scanline_idx = find_scanline(valid_indices_2d)
+
+#     # Reshape cloud to 8x400x600 for easier access
+#     cloud_array_2d = reshape(cloud, (8, size(agent.step_metadatas[end].depth_map_list[end])...));
+
+#     # Pick scanline (scanline_idx) and only look at 3D coordinates (1:3) => 3x600 matrix
+#     return cloud_array_2d, scanline_idx
+# end
+
+# rows_of_interest = []
+
+# for _ in 1:36
+#     execute_command(controller, agent, "RotateRight")
+#     cloud_array_2d, scanline_idx = get_scanline(agent)
+#     roi = cloud_array_2d[1:3, scanline_idx, :]
+#     if !isnothing(roi) push!(rows_of_interest, roi) end
+# end
+
+# +
+"""
+Same as `get_scanline()`, but works on camera frame point cloud
+without depending on global coordinates. Based on `detect_corner_from_camera_frame(agent)`.
+"""
+function get_scanline_from_camera_frame(agent::Agent; verbose = false)
+    
+    step_metadata = agent.step_metadatas[end]
+    
+    cloud = cloud_from_depth_map(
+                Matrix(numpy.array(last(step_metadata.depth_map_list))),
+                intrinsics.cx, intrinsics.cy,
+                intrinsics.fx, intrinsics.fy,
+                intrinsics.width, intrinsics.height; stride_x=1, stride_y=1
+            )
+    cloud_array_2d = reshape(cloud, (3, size(agent.step_metadatas[end].depth_map_list[end])...))
+    
+    # We could get point cloud in world frame like this, but don't know our pose after kidnapping:
+    # pose = agent.poses[end]
+    # cloud = rotate_cloud(cloud; head_tilt_deg=pose.head_tilt, view_angle_deg=pose.rotation)
+    # cloud = translate_cloud(cloud, pose.position)
+    # cloud_array_2d_b = reshape(cloud, (3, size(agent.step_metadatas[end].depth_map_list[end])...));
+    
+    height_offset = 0.1
+    min_height, max_height = minimum(cloud[2, :]) + height_offset, maximum(cloud[2, :]) - height_offset
+    if verbose println("Height range: $(min_height) to $(max_height)") end
+
+    # Boolean mask for all pixels that are definitely not ceiling or floor
+    valid_indices = (cloud[2,:] .> min_height) .& (cloud[2,:] .< max_height)
+    valid_indices_2d = reshape(valid_indices, size(agent.step_metadatas[end].depth_map_list[end]))
+
+    scanline_idx = find_scanline(valid_indices_2d)
+    
+    return cloud_array_2d, scanline_idx
+end
+
+rows_of_interest_local = []
+
+for _ in 1:36
+    execute_command(controller, agent, "RotateRight")
+    cloud_array_2d, scanline_idx = get_scanline_from_camera_frame(agent)
+    roi = cloud_array_2d[1:3, scanline_idx, :]
+    if !isnothing(roi) push!(rows_of_interest_local, roi) end
+end
+# -
+
+# for row in rows_of_interest_local
+#     println(row)
+#     break
+# end
+row = rows_of_interest_local[1]
+plt.scatter(row[1,:], row[3,:], c="lightgray", marker="o")
+
+
+
 # +
 cloud = rand(3,100) * 1.0
 resolution = 0.1
-v,n,f = GL.mesh_from_voxelized_cloud(GL.voxelize(cloud, resolution), resolution)
+v, n, f = GL.mesh_from_voxelized_cloud(GL.voxelize(cloud, resolution), resolution)
 
 renderer = GL.setup_renderer(Geometry.CameraIntrinsics(
     640, 480,
@@ -38,12 +196,12 @@ renderer = GL.setup_renderer(Geometry.CameraIntrinsics(
     320.0, 240.0,
     0.01, 20.0
 ), GL.RGBMode())
-GL.load_object!(renderer, v,n,f)
+GL.load_object!(renderer, v, n, f)
 
 renderer.gl_instance.lightpos = [0,0,0]
 rgb_image, depth_image = GL.gl_render(renderer, 
     [1], [P.Pose([0.0, 0.0, 4.0], R.RotXYZ(0.0, 0.0, 0.0))], 
-    [I.colorant"green"],
+    [I.colorant"red"],
     P.IDENTITY_POSE)
 I.colorview(I.RGBA, permutedims(rgb_image,(3,1,2)))
 
@@ -52,54 +210,33 @@ room_height_bounds = (-5.0, 5.0)
 room_width_bounds = (-8.0, 8.0)
 
 resolution = 0.1
-room_cloud_1 = []
-room_cloud_2 = []
-room_cloud_3 = []
-room_cloud_4 = []
+room_cloud = []
 
 for z in room_height_bounds[1]:resolution/2.0:room_height_bounds[2]
-    push!(room_cloud_1, [room_width_bounds[1], 0.0, z])
-    push!(room_cloud_2, [room_width_bounds[2], 0.0, z])
+    push!(room_cloud, [room_width_bounds[1], 0.0, z])
+    push!(room_cloud, [room_width_bounds[2], 0.0, z])
 end
 for x in room_width_bounds[1]:resolution/2.0:room_width_bounds[2]
-    push!(room_cloud_3, [x, 0.0, room_height_bounds[1]])
-    push!(room_cloud_4, [x, 0.0, room_height_bounds[2]])
+    push!(room_cloud, [x, 0.0, room_height_bounds[1]])
+    push!(room_cloud, [x, 0.0, room_height_bounds[2]])
 end
+room_cloud = hcat(room_cloud...)
+PL.scatter(room_cloud[1,:], room_cloud[3,:], label="")
+# -
 
-v1,n1,f1 = GL.mesh_from_voxelized_cloud(GL.voxelize(hcat(room_cloud_1...), resolution), resolution)
-v2,n2,f2 = GL.mesh_from_voxelized_cloud(GL.voxelize(hcat(room_cloud_2...), resolution), resolution)
-v3,n3,f3 = GL.mesh_from_voxelized_cloud(GL.voxelize(hcat(room_cloud_3...), resolution), resolution)
-v4,n4,f4 = GL.mesh_from_voxelized_cloud(GL.voxelize(hcat(room_cloud_4...), resolution), resolution)
-
-room_cloud = hcat(room_cloud_1...,room_cloud_2...,room_cloud_3...,room_cloud_4...)
-
-PL.scatter(v1[:,1],v1[:,3],label="")
-PL.scatter!(v2[:,1],v2[:,3],label="")
-PL.scatter!(v3[:,1],v3[:,3],label="")
-PL.scatter!(v4[:,1],v4[:,3],label="")
-
-# +
+v,n,f = GL.mesh_from_voxelized_cloud(GL.voxelize(room_cloud, resolution), resolution)
 renderer = GL.setup_renderer(Geometry.CameraIntrinsics(
     600, 600,
     300.0, 300.0,
     300.0,300.0,
-    0.1, 60.0
-), GL.RGBMode())
-
-GL.load_object!(renderer, v3, n3, f3)
-GL.load_object!(renderer, v4, n4, f4)
-GL.load_object!(renderer, v2, n2, f2)
-GL.load_object!(renderer, v1, n1, f1)
-
+    0.1, 50.0
+), GL.DepthMode())
+GL.load_object!(renderer, v, f)
 renderer.gl_instance.lightpos = [0,0,0]
-
-rgb, depth = GL.gl_render(renderer, 
-    [1,2,3,4], [P.IDENTITY_POSE, P.IDENTITY_POSE,P.IDENTITY_POSE,P.IDENTITY_POSE],
-    [I.colorant"red",I.colorant"green",I.colorant"blue",I.colorant"yellow"],
+depth = GL.gl_render(renderer, 
+    [1], [P.IDENTITY_POSE], 
     P.Pose([0.0, -10.0, 0.0], R.RotX(-pi/2)))
-
-# PL.heatmap(depth, aspect_ratio=:equal)
-I.colorview(I.RGBA,permutedims(rgb,(3,1,2)))
+PL.heatmap(depth, aspect_ratio=:equal)
 
 # +
 camera_intrinsics = Geometry.CameraIntrinsics(
@@ -108,42 +245,30 @@ camera_intrinsics = Geometry.CameraIntrinsics(
     7.0, 0.5,
     0.1, 20.0
 )
-renderer = GL.setup_renderer(camera_intrinsics, GL.RGBMode())
-GL.load_object!(renderer, v3, n3, f3)
-GL.load_object!(renderer, v4, n4, f4)
-GL.load_object!(renderer, v2, n2, f2)
-GL.load_object!(renderer, v1, n1, f1)
+renderer = GL.setup_renderer(camera_intrinsics, GL.DepthMode())
+GL.load_object!(renderer, v, f)
 renderer.gl_instance.lightpos = [0,0,0]
 
-
-cam_pose = P.Pose(zeros(3),R.RotY(-pi/4+ 1.0))
-wall_colors = [I.colorant"red",I.colorant"green",I.colorant"blue",I.colorant"yellow"]
-# wall_colors = [I.colorant"red",I.colorant"red",I.colorant"red",I.colorant"red"]
-@time rgb, depth = GL.gl_render(renderer, 
-     [1,2,3,4], [P.IDENTITY_POSE, P.IDENTITY_POSE,P.IDENTITY_POSE,P.IDENTITY_POSE],
-    wall_colors, 
-    cam_pose)
+cam_pose = P.IDENTITY_POSE
+@time depth = GL.gl_render(renderer, 
+    [1], [P.IDENTITY_POSE], cam_pose)
+cloud = GL.flatten_point_cloud(GL.depth_image_to_point_cloud(depth, camera_intrinsics))
+@show size(depth)
 PL.heatmap(depth)
-
-img = I.colorview(I.RGB,permutedims(rgb,(3,1,2))[1:3,:,:])
-color = map(argmin, eachcol(vcat([I.colordiff.(img, c) for c in wall_colors]...)))
-@show color 
-img
-
 # +
 struct PoseUniform <: Gen.Distribution{P.Pose} end
 const pose_uniform = PoseUniform()
 function Gen.random(::PoseUniform, bounds_x, bounds_z)
     x = rand(Distributions.Uniform(bounds_x...))
     z = rand(Distributions.Uniform(bounds_z...))
-    hd = rand(Distributions.Uniform(-2*pi, 2*pi))
+    hd = rand(Distributions.Uniform(0.0, 2*pi))
     P.Pose([x, 0.0, z], R.RotY(hd))
 end
 function Gen.logpdf(::PoseUniform, pose::P.Pose, bounds_x, bounds_z)
     (
         Gen.logpdf(Gen.uniform, pose.pos[1], bounds_x...) +
         Gen.logpdf(Gen.uniform, pose.pos[3], bounds_z...) +
-        Gen.logpdf(Gen.uniform, R.RotY(pose.orientation).theta, -2*pi, 2*pi)
+        Gen.logpdf(Gen.uniform, R.RotY(pose.orientation).theta, 0.0, 2*pi)
     )   
 end
 
@@ -166,69 +291,43 @@ function Gen.logpdf(::PoseGaussian, pose::P.Pose, center_pose::P.Pose, cov, var)
     )   
 end
 
-
-struct ColorDistribution <: Gen.Distribution{Array{<:Real}} end
-const color_distribution = ColorDistribution()
-function Gen.random(::ColorDistribution, color, p)
-    # This is incorrect
-    color
-end
-function Gen.logpdf(::ColorDistribution, obs_color, color, p)
-    n = length(wall_colors)
-    img = Images.colorview(Images.RGB,permutedims(obs_color, (3,1,2))[1:3,:,:])
-    obs = map(argmin, eachcol(vcat([I.colordiff.(img, c) for c in wall_colors]...)))
-    
-    img = Images.colorview(Images.RGB,permutedims(color, (3,1,2))[1:3,:,:])
-    base = map(argmin, eachcol(vcat([I.colordiff.(img, c) for c in wall_colors]...)))
-    
-    disagree = sum(base .!= obs)
-    agree = sum(base .== obs)
-    
-    agree * log(p) + disagree * log( (1-p)/(n-1))
-end
 # -
 
 room_bounds_uniform_params = [room_width_bounds[1] room_width_bounds[2];room_height_bounds[1] room_height_bounds[2]]
 
 # +
-@Gen.gen function slam_unfold_kernel(t, prev_data, room_bounds, wall_colors, cov)
+@Gen.gen function slam_unfold_kernel(t, prev_data, room_bounds, I)
     if t==1
         pose ~ pose_uniform(room_bounds[1,:],room_bounds[2,:])
     else
         # Note: deg2rad() here gives how far agent rotates
         pose ~ pose_gaussian(prev_data.pose, [1.0 0.0;0.0 1.0] * 0.1, deg2rad(10.0))
     end
-    rgb, depth = GL.gl_render(renderer, 
-     [1,2,3,4], [P.IDENTITY_POSE, P.IDENTITY_POSE,P.IDENTITY_POSE,P.IDENTITY_POSE],
-    wall_colors, 
-    pose)
+    depth = GL.gl_render(renderer, [1], [P.IDENTITY_POSE], pose)    
     
-    sense_depth ~ Gen.mvnormal(depth[1,:], cov)
-    sense_rgb ~ color_distribution(rgb, 0.999)
-    return (pose=pose, rgb=rgb, depth=depth, sense_depth=sense_depth, sense_rgb=sense_rgb)
+    sense ~ Gen.mvnormal(depth[1,:], I)
+    return (pose=pose, depth=depth, sense=sense)
 end
 
 slam_unfolded = Gen.Unfold(slam_unfold_kernel)
 
-@Gen.gen (static) function slam_multi_timestep(T, prev_data, room_bounds, wall_colors, cov)
-    slam ~ slam_unfolded(T, prev_data, room_bounds, wall_colors, cov)
+@Gen.gen (static) function slam_multi_timestep(T, prev_data, room_bounds, I)
+    slam ~ slam_unfolded(T, prev_data, room_bounds, I)
     return slam
 end
 
 
-sense_rgb_addr(t) = (:slam => t => :sense_rgb)
-sense_depth_addr(t) = (:slam => t => :sense_depth)
+sense_addr(t) = (:slam => t => :sense)
 pose_addr(t) = (:slam => t => :pose)
 get_pose(tr,t) = tr[pose_addr(t)]
 get_depth(tr,t) = Gen.get_retval(tr)[t].depth
-get_rgb(tr,t) = Gen.get_retval(tr)[t].rgb
-get_sense_rgb(tr,t) = tr[sense_rgb_addr(t)]
-get_sense_depth(tr,t) = tr[sense_depth_addr(t)]
+get_sense(tr,t) = tr[sense_addr(t)]
+
 
 Gen.@load_generated_functions
 
 function viz_env()
-    PL.scatter(room_cloud[1,:], room_cloud[3,:], label=false)
+    PL.scatter!(room_cloud[1,:], room_cloud[3,:], label=false)
 end
 
 function viz_pose(pose)
@@ -244,7 +343,7 @@ end
 function viz_obs(tr,t)
     pose = get_pose(tr,t)
     depth = get_depth(tr,t)
-    sense = get_sense_depth(tr,t)
+    sense = get_sense(tr,t)
     
     cloud = GL.flatten_point_cloud(GL.depth_image_to_point_cloud(depth, camera_intrinsics))
     cloud = GL.move_points_to_frame_b(cloud, pose)
@@ -279,9 +378,10 @@ end
 T_gen = 36
 
 import LinearAlgebra
-cov = Matrix{Float64}(LinearAlgebra.I, camera_intrinsics.width, camera_intrinsics.width) * 0.01;
-tr_gt, w = Gen.generate(slam_multi_timestep, (T_gen, nothing, room_bounds_uniform_params, wall_colors, cov,));
-viz_trace(tr_gt,1)
+I = Matrix{Float64}(LinearAlgebra.I, camera_intrinsics.width, camera_intrinsics.width) * 0.01;
+tr_gt, w = Gen.generate(slam_multi_timestep, (T_gen, nothing, room_bounds_uniform_params,I,));
+viz_trace(tr_gt, 1)
+# -
 
 tr_gt[pose_addr(36)]
 
@@ -315,12 +415,6 @@ function get_corners(sense)
     for s in spikes
         i,j = s-2, s-1
         k,l = s+2, s+1
-        
-        # Alternative Check
-        # check_valid(idx) = (idx > 0 ) && (idx  <= size(cloud)[2])
-        # if !all(map(check_valid, [i,j,k,l]))
-        #     continue
-        # end
         
         if i > 0 && i <= size(cloud)[2] && j > 0  && j <= size(cloud)[2] && k > 0 && k <= size(cloud)[2] && l > 0 && l <= size(cloud)[2]
             a,b,c,d = cloud[:,i],cloud[:,j],cloud[:,k],cloud[:,l]
@@ -418,7 +512,7 @@ end
 T = 36
 constraints = 
     Gen.choicemap(
-        pose_addr(1)=>P.Pose([-3.0, 0.0, -1.0], R.RotY(pi+pi/4))
+        pose_addr(1) => P.Pose([3.0, 0.0, 3.0], R.RotY(pi/4))
     )
 for t in 2:T
     # deg2rad(25.0)
@@ -426,11 +520,9 @@ for t in 2:T
 end
 
 import LinearAlgebra
-# wall_colors = [I.colorant"red",I.colorant"green",I.colorant"blue",I.colorant"yellow"]
-wall_colors = [I.colorant"red",I.colorant"red",I.colorant"red",I.colorant"red"]
-cov = Matrix{Float64}(LinearAlgebra.I, camera_intrinsics.width, camera_intrinsics.width) * 0.5;
-tr_gt, w = Gen.generate(slam_multi_timestep, (T, nothing, room_bounds_uniform_params,wall_colors,cov,), constraints);
-@show Gen.get_score(tr_gt)
+I = Matrix{Float64}(LinearAlgebra.I, camera_intrinsics.width, camera_intrinsics.width) * 0.1;
+tr_gt, w = Gen.generate(slam_multi_timestep, (T, nothing, room_bounds_uniform_params,I,), constraints);
+viz_trace(tr_gt, [2])
 # -
 
 viz_trace(tr_gt, [25])
@@ -447,75 +539,31 @@ end
 
 t = 1
 @time pf_state = PF.pf_initialize(slam_multi_timestep,
-    (1,Gen.get_args(tr_gt)[2:end]...),
-    Gen.choicemap(sense_depth_addr(t) => get_depth(tr_gt,t)[:], sense_rgb_addr(t) => get_rgb(tr_gt,t)),
-    pose_mixture_proposal, (nothing, poses, 1,[1.0 0.0;0.0 1.0] * 0.05, deg2rad(2.0)),
-    100);
+    (1,Gen.get_args(tr_gt)[2:end]...), Gen.choicemap(sense_addr(t) => get_depth(tr_gt,t)[:]), 
+    pose_mixture_proposal, (nothing, poses, 1,[1.0 0.0;0.0 1.0] * 0.01, deg2rad(1.0)),
+    10);  # <-- Number of particles
 
 PF.pf_move_accept!(pf_state, Gen.metropolis_hastings, (position_drift_proposal, 
-        (t,[1.0 0.0;0.0 1.0] * 0.1)), 10);
+        (t,[1.0 0.0;0.0 1.0] * 0.5)), 50);
 PF.pf_move_accept!(pf_state, Gen.metropolis_hastings, (head_direction_drift_proposal, 
-        (t,deg2rad(1.0))), 10);
+        (t,deg2rad(5.0))), 50);
 PF.pf_move_accept!(pf_state, Gen.metropolis_hastings, (joint_pose_drift_proposal, 
-        (t,[1.0 0.0;0.0 1.0] * 0.1, deg2rad(1.0))), 10);
+        (t,[1.0 0.0;0.0 1.0] * 0.5, deg2rad(5.0))), 100);
 # -
 
-order = sortperm(pf_state.log_weights,rev=true)
-best_tr = pf_state.traces[order[3]]
-@show Gen.get_score(best_tr)
-@show Gen.project(best_tr, Gen.select(pose_addr(1)))
-pose = best_tr[pose_addr(1)]
-@show pose
+best_idx = argmax(pf_state.log_weights)
+best_tr = pf_state.traces[best_idx]
 viz_trace(best_tr, [1])
 # viz_pose(get_pose(best_tr,1))
 
-z = Gen.logsumexp(pf_state.log_weights)
-log_weights = pf_state.log_weights .- z
-weights = exp.(log_weights)
-@show sum(weights)
-weights
-
-tr = best_tr
-a=I.colorview(I.RGBA,permutedims(get_rgb(tr,1),(3,1,2)))
-b = I.colorview(I.RGBA,permutedims(get_sense_rgb(tr,1),(3,1,2)))
-vcat(a,b)
-
-# +
-corners = get_corners(get_depth(tr_gt,1))
-poses = []
-for c in corners
-    for c2 in gt_corners
-        p = c2 * inv(c)
-        push!(poses, p)
-    end
-end
-
-t = 1
-@time pf_state = PF.pf_initialize(slam_multi_timestep,
-    (1,Gen.get_args(tr_gt)[2:end]...),
-    Gen.choicemap(sense_depth_addr(t) => get_depth(tr_gt,t)[:], sense_rgb_addr(t) => get_rgb(tr_gt,t)),
-    pose_mixture_proposal, (nothing, poses, 1,[1.0 0.0;0.0 1.0] * 0.05, deg2rad(2.0)),
-    100);
-
-PF.pf_move_accept!(pf_state, Gen.metropolis_hastings, (position_drift_proposal, 
-        (t,[1.0 0.0;0.0 1.0] * 0.1)), 10);
-PF.pf_move_accept!(pf_state, Gen.metropolis_hastings, (head_direction_drift_proposal, 
-        (t,deg2rad(1.0))), 10);
-PF.pf_move_accept!(pf_state, Gen.metropolis_hastings, (joint_pose_drift_proposal, 
-        (t,[1.0 0.0;0.0 1.0] * 0.1, deg2rad(1.0))), 10);
-
-# +
 for t in 2:T
-    
-    println("Time step $(t)")
     
     # PF.pf_resample!(pf_state, :residual) would lead to mode collapse
     
     PF.pf_update!(pf_state,
                   (t, Gen.get_args(tr_gt)[2:end]...),
                   (Gen.UnknownChange(),[Gen.NoChange() for _ in 1:(length(Gen.get_args(tr_gt))-1)]...),
-    Gen.choicemap(sense_depth_addr(t) => get_depth(tr_gt,t)[:], sense_rgb_addr(t) => get_rgb(tr_gt,t)),
-    );
+                   Gen.choicemap(sense_addr(t) => get_depth(tr_gt, t)[:]));
 
     
     # Geometrically computed pose proposal
@@ -527,30 +575,28 @@ for t in 2:T
             push!(poses, p)
         end
     end
-    
     if length(corners) > 0
         PF.pf_move_accept!(pf_state, Gen.metropolis_hastings, (pose_mixture_proposal, 
-                (poses, t, [1.0 0.0;0.0 1.0] * 0.05, deg2rad(2.0))), 10);
+                (poses, t, [1.0 0.0; 0.0 1.0] * 0.05, deg2rad(5.0))), 10);
     end
 
     # Drift Moves
     PF.pf_move_accept!(pf_state, Gen.metropolis_hastings, (position_drift_proposal, 
-            (t,[1.0 0.0;0.0 1.0] * 0.5)), 10);
+            (t,[1.0 0.0;0.0 1.0] * 0.5)), 50);
     PF.pf_move_accept!(pf_state, Gen.metropolis_hastings, (head_direction_drift_proposal, 
-            (t,deg2rad(5.0))), 10);
+            (t,deg2rad(5.0))), 50);
     PF.pf_move_accept!(pf_state, Gen.metropolis_hastings, (joint_pose_drift_proposal, 
-            (t,[1.0 0.0;0.0 1.0] * 0.5, deg2rad(5.0))), 10);
-    
+            (t,[1.0 0.0;0.0 1.0] * 0.5, deg2rad(5.0))), 100);
+
     PF.pf_move_accept!(pf_state, Gen.metropolis_hastings, (position_drift_proposal, 
-            (t,[1.0 0.0;0.0 1.0] * 0.5)), 10);
+            (t,[1.0 0.0;0.0 1.0] * 0.5)), 50);
     PF.pf_move_accept!(pf_state, Gen.metropolis_hastings, (head_direction_drift_proposal, 
-            (t,deg2rad(5.0))), 10);
+            (t,deg2rad(5.0))), 50);
     PF.pf_move_accept!(pf_state, Gen.metropolis_hastings, (joint_pose_drift_proposal, 
-            (t,[1.0 0.0;0.0 1.0] * 0.5, deg2rad(5.0))), 10);
+            (t,[1.0 0.0;0.0 1.0] * 0.5, deg2rad(5.0))), 100);
 end
 
 order = sortperm(pf_state.log_weights,rev=true)
-
 best_tr = pf_state.traces[order[1]]
 viz_trace(best_tr, 1:T)
 # viz_pose(get_pose(best_tr,1))
@@ -607,18 +653,14 @@ pts_mat = vcat(hcat(pts...))
 cluster_r = kmeans(pts_mat, 4; maxiter=200, display=:iter)
 
 # +
-using StaticArrays
-
-import PyPlot
-plt = PyPlot.plt
-
 println(cluster_r.counts)
 println(cluster_r.centers)
 plt.figure(figsize=(4,4)); plt.gca().set_aspect(1.);
 
 # Visualize inference cluster centers in red
 vals = cluster_r.counts/maximum(cluster_r.counts)
-plt.scatter(cluster_r.centers[1, :], cluster_r.centers[3, :], c="red", marker="o", alpha=vals)
+# TODO alpha=vals does not always seem to work in next line - why?
+plt.scatter(cluster_r.centers[1, :], cluster_r.centers[3, :], c="red", marker="o")
 
 # Visualize geometry points and orientations for comparison in gray
 for p in poses_geometry
@@ -633,8 +675,10 @@ for p in poses_geometry
     plt.quiver([p.pos[1]], [p.pos[3]], [ray[1]], [ray[3]],
                    color=["b"], angles="xy", scale_units="xy", scale=1.0, label="View")
 end
+# +
+# vals
+# size(cluster_r.centers)
 # -
-
 
 
 
