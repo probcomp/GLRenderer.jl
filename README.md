@@ -15,3 +15,18 @@ This package also depends on: [Geometry](https://github.com/probcomp/Geometry) w
 ## Usage
 
 Refer to `test` for examples of each of the types of rendering.
+
+### Notebook
+In order to use Jupyter notebooks with this project, please use:
+```shell
+source venv/bin/activate
+
+PYTHON=$(which python) julia --project=@.
+julia> ENV["PYTHON"]
+julia> import Pkg; Pkg.build("PyCall")
+Ctrl+D
+
+PYTHON=$(which python) PYCALL_JL_RUNTIME_PYTHON=$(which python) jupyter-notebook
+```
+This activates the project's virtual Python environment, rebuilds PyCall with it and then launches the notebook while pointing to it.
+
