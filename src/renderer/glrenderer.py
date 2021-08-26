@@ -134,6 +134,31 @@ class GLRenderer:
         self.lightpos = [0, 0, 0]
         self.lightcolor = [1, 1, 1]
 
+
+        vertexShader_depth = self.shaders.compileShader("""
+        #version 460
+        uniform mat4 V;
+        uniform mat4 P;
+        uniform mat4 pose_rot;
+        uniform mat4 pose_trans;
+        layout (location=0) in vec3 position;
+        void main() {
+            gl_Position = P * V * pose_trans * pose_rot * vec4(position, 1);
+        }
+        """, GL.GL_VERTEX_SHADER)
+
+        fragmentShader_depth = self.shaders.compileShader("""
+        #version 460
+        out vec4 outColor;
+        void main()
+        {
+            outColor = vec4(1.0, 1.0, 1.0, 1.0);
+        }
+        """, GL.GL_FRAGMENT_SHADER)
+
+        self.shaderProgram_depth = self.shaders.compileProgram(vertexShader_depth,
+                                                               fragmentShader_depth)
+
         vertexShader_rgb = self.shaders.compileShader("""
         #version 460
         uniform mat4 V;
@@ -163,7 +188,7 @@ class GLRenderer:
         }
         """, GL.GL_VERTEX_SHADER)
 
-        fragmentShader_rgb = self.shaders.compileShader("""
+        fragmentShader_rgb_basic = self.shaders.compileShader("""
         #version 460
         in vec4 theColor;
         in vec3 Normal;
@@ -184,32 +209,33 @@ class GLRenderer:
         }
         """, GL.GL_FRAGMENT_SHADER)
 
-        self.shaderProgram_rgb = self.shaders.compileProgram(vertexShader_rgb,
-                                                                     fragmentShader_rgb)
+        self.shaderProgram_rgb_basic = self.shaders.compileProgram(vertexShader_rgb,
+                                                                   fragmentShader_rgb_basic)
 
-        vertexShader_depth = self.shaders.compileShader("""
+
+        fragmentShader_rgb = self.shaders.compileShader("""
         #version 460
-        uniform mat4 V;
-        uniform mat4 P;
-        uniform mat4 pose_rot;
-        uniform mat4 pose_trans;
-        layout (location=0) in vec3 position;
+        in vec4 theColor;
+        in vec3 Normal;
+        in vec3 Normal_cam;
+        in vec3 FragPos;
+        in vec3 Pos_cam;
+        in vec3 Pos_obj;
+        layout (location = 0) out vec4 outputColour;
+        uniform vec3 light_position;  // in world coordinate
+        uniform vec3 light_color; // light color
         void main() {
-            gl_Position = P * V * pose_trans * pose_rot * vec4(position, 1);
-        }
-        """, GL.GL_VERTEX_SHADER)
-
-        fragmentShader_depth = self.shaders.compileShader("""
-        #version 460
-        out vec4 outColor;
-        void main()
-        {
-            outColor = vec4(1.0, 1.0, 1.0, 1.0);
+            float ambientStrength = 0.05;
+            vec3 ambient = ambientStrength * light_color;
+            vec3 lightDir = normalize(light_position - FragPos);
+            float diff = max(dot(Normal, lightDir), 0.0);
+            vec3 diffuse = diff * light_color;
+            outputColour =  vec4(theColor) * vec4(diffuse + ambient, 1);
         }
         """, GL.GL_FRAGMENT_SHADER)
 
-        self.shaderProgram_depth = self.shaders.compileProgram(vertexShader_depth,
-                                                               fragmentShader_depth)
+        self.shaderProgram_rgb = self.shaders.compileProgram(vertexShader_rgb,
+                                                             fragmentShader_rgb)
 
         vertexShader_texture = self.shaders.compileShader("""
         #version 460
@@ -327,7 +353,7 @@ class GLRenderer:
 
             GL.glBindBuffer(GL.GL_ARRAY_BUFFER, 0)
             GL.glBindVertexArray(0)
-        elif self.render_type == "rgb":
+        elif self.render_type == "rgb" or self.render_type == "rgb_basic":
             vertices = np.concatenate([vertices, normals], axis=-1)
             vertexData = vertices.astype(np.float32)
 
@@ -403,8 +429,12 @@ class GLRenderer:
                                       GL.GL_FALSE, trans)
                 GL.glUniformMatrix4fv(GL.glGetUniformLocation(self.shaderProgram_depth, 'pose_rot'), 1,
                                       GL.GL_TRUE, rot)
-            elif self.render_type == "rgb":
-                GL.glUseProgram(self.shaderProgram_rgb)
+            elif self.render_type == "rgb" or self.render_type == "rgb_basic":
+                if self.render_type == "rgb":
+                    GL.glUseProgram(self.shaderProgram_rgb)
+                else:
+                    GL.glUseProgram(self.shaderProgram_rgb_basic)
+
                 GL.glUniformMatrix4fv(GL.glGetUniformLocation(self.shaderProgram_rgb, 'V'), 1, GL.GL_TRUE,
                                       self.V)
                 GL.glUniformMatrix4fv(GL.glGetUniformLocation(self.shaderProgram_rgb, 'P'), 1, GL.GL_FALSE,

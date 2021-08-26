@@ -17,6 +17,7 @@ include("point_cloud.jl")
 
 abstract type RenderMode end
 struct DepthMode <: RenderMode end
+struct RGBBasicMode <: RenderMode end
 struct RGBMode <: RenderMode end
 struct TextureMode <: RenderMode end
 
@@ -28,6 +29,8 @@ end
 function setup_renderer(camera_intrinsics::CameraIntrinsics, mode::RenderMode)::Renderer
     if typeof(mode) == DepthMode
         mode_sting = "depth"
+    elseif typeof(mode) == RGBBasicMode
+        mode_sting = "rgb_basic"
     elseif typeof(mode) == RGBMode
         mode_sting = "rgb"
     elseif typeof(mode) == TextureMode
@@ -52,7 +55,7 @@ end
 function load_object!(renderer::Renderer{DepthMode}, vertices, faces)
     renderer.gl_instance.load_object(vertices, false, faces, false, false)
 end
-function load_object!(renderer::Renderer{RGBMode}, vertices, normals, faces)
+function load_object!(renderer::Union{Renderer{RGBMode},Renderer{RGBBasicMode}}, vertices, normals, faces)
     renderer.gl_instance.load_object(vertices, normals, faces, false, false)
 end
 function load_object!(renderer::Renderer{TextureMode}, vertices, normals, faces, texture_coords, texture_path)
@@ -87,8 +90,10 @@ function gl_render(
     depth
 end
 
+
+
 function gl_render(
-    renderer::Renderer{RGBMode}, mesh_ids::Vector{Int},
+    renderer::Union{Renderer{RGBMode},Renderer{RGBBasicMode}}, mesh_ids::Vector{Int},
     poses::Vector{Pose}, colors::Vector{<:Color}, camera_pose::Pose
 )
     renderer.gl_instance.V = pose_to_model_matrix(
