@@ -22,26 +22,6 @@ Revise.errors()
 Revise.revise()
 
 # +
-cloud = rand(3,100) * 1.0
-resolution = 0.1
-v,n,f = GL.mesh_from_voxelized_cloud(GL.voxelize(cloud, resolution), resolution)
-
-renderer = GL.setup_renderer(Geometry.CameraIntrinsics(
-    640, 480,
-    1000.0, 1000.0,
-    320.0, 240.0,
-    0.01, 20.0
-), GL.RGBMode())
-GL.load_object!(renderer, v,n,f)
-
-renderer.gl_instance.lightpos = [0,0,0]
-rgb_image, depth_image = GL.gl_render(renderer, 
-    [1], [P.Pose([0.0, 0.0, 4.0], R.RotXYZ(0.0, 0.0, 0.0))], 
-    [I.colorant"green"],
-    P.IDENTITY_POSE)
-I.colorview(I.RGBA, permutedims(rgb_image,(3,1,2)))
-
-# +
 room_height_bounds = (-5.0, 5.0)
 room_width_bounds = (-8.0, 8.0)
 
@@ -59,34 +39,49 @@ for x in room_width_bounds[1]:resolution/2.0:room_width_bounds[2]
     push!(room_cloud_3, [x, 0.0, room_height_bounds[1]])
     push!(room_cloud_4, [x, 0.0, room_height_bounds[2]])
 end
-v1,n1,f1 = GL.mesh_from_voxelized_cloud(GL.voxelize(hcat(room_cloud_1...), resolution), resolution)
-v2,n2,f2 = GL.mesh_from_voxelized_cloud(GL.voxelize(hcat(room_cloud_2...), resolution), resolution)
-v3,n3,f3 = GL.mesh_from_voxelized_cloud(GL.voxelize(hcat(room_cloud_3...), resolution), resolution)
-v4,n4,f4 = GL.mesh_from_voxelized_cloud(GL.voxelize(hcat(room_cloud_4...), resolution), resolution)
 
-room_cloud = hcat(room_cloud_1...,room_cloud_2...,room_cloud_3...,room_cloud_4...)
 
-PL.scatter(v1[:,1],v1[:,3],label="")
-PL.scatter!(v2[:,1],v2[:,3],label="")
-PL.scatter!(v3[:,1],v3[:,3],label="")
-PL.scatter!(v4[:,1],v4[:,3],label="")
-# -
+room_cloud_1 = hcat(room_cloud_1...)
+room_cloud_2 = hcat(room_cloud_2...)
+room_cloud_3 = hcat(room_cloud_3...)
+room_cloud_4 = hcat(room_cloud_4...)
 
+v1,n1,f1 = GL.mesh_from_voxelized_cloud(GL.voxelize(room_cloud_1, resolution), resolution)
+v2,n2,f2 = GL.mesh_from_voxelized_cloud(GL.voxelize(room_cloud_2, resolution), resolution)
+v3,n3,f3 = GL.mesh_from_voxelized_cloud(GL.voxelize(room_cloud_3, resolution), resolution)
+v4,n4,f4 = GL.mesh_from_voxelized_cloud(GL.voxelize(room_cloud_4, resolution), resolution)
+
+room_cloud = hcat(room_cloud_1,room_cloud_2,room_cloud_3,room_cloud_4)
+
+PL.scatter(room_cloud_1[1,:], room_cloud_1[3,:],label="")
+PL.scatter!(room_cloud_2[1,:], room_cloud_2[3,:],label="")
+PL.scatter!(room_cloud_3[1,:], room_cloud_3[3,:],label="")
+PL.scatter!(room_cloud_4[1,:], room_cloud_4[3,:],label="")
+
+# PL.scatter!(v2[:,1],v2[:,3],label="")
+# PL.scatter!(v3[:,1],v3[:,3],label="")
+# PL.scatter!(v4[:,1],v4[:,3],label="")
+
+# +
 renderer = GL.setup_renderer(Geometry.CameraIntrinsics(
     600, 600,
     300.0, 300.0,
     300.0,300.0,
     0.1, 60.0
-), GL.RGBMode())
+), GL.RGBBasicMode())
+GL.load_object!(renderer, v1, n1, f1)
+GL.load_object!(renderer, v2, n2, f2)
 GL.load_object!(renderer, v3, n3, f3)
 GL.load_object!(renderer, v4, n4, f4)
-GL.load_object!(renderer, v2, n2, f2)
-GL.load_object!(renderer, v1, n1, f1)
 renderer.gl_instance.lightpos = [0,0,0]
-rgb, depth = GL.gl_render(renderer, 
-    [1,2,3,4], [P.IDENTITY_POSE, P.IDENTITY_POSE,P.IDENTITY_POSE,P.IDENTITY_POSE],
+
+rgb, depth = GL.gl_render(
+    renderer, 
+    [1,2,3,4],
+    [P.IDENTITY_POSE, P.IDENTITY_POSE,P.IDENTITY_POSE,P.IDENTITY_POSE],
     [I.colorant"red",I.colorant"green",I.colorant"blue",I.colorant"yellow"],
-    P.Pose([0.0, -10.0, 0.0], R.RotX(-pi/2)))
+    P.Pose([0.0, -10.0, 0.0], R.RotX(-pi/2))
+)
 # PL.heatmap(depth, aspect_ratio=:equal)
 I.colorview(I.RGBA,permutedims(rgb,(3,1,2)))
 
@@ -97,21 +92,23 @@ camera_intrinsics = Geometry.CameraIntrinsics(
     7.0, 0.5,
     0.1, 20.0
 )
-renderer = GL.setup_renderer(camera_intrinsics, GL.RGBMode())
+renderer = GL.setup_renderer(camera_intrinsics, GL.RGBBasicMode())
+GL.load_object!(renderer, v1, n1, f1)
+GL.load_object!(renderer, v2, n2, f2)
 GL.load_object!(renderer, v3, n3, f3)
 GL.load_object!(renderer, v4, n4, f4)
-GL.load_object!(renderer, v2, n2, f2)
-GL.load_object!(renderer, v1, n1, f1)
 renderer.gl_instance.lightpos = [0,0,0]
 
 
-cam_pose = P.Pose(zeros(3),R.RotY(-pi/4+ 1.0))
+cam_pose = P.Pose(zeros(3),R.RotY(-pi/4+ 0.0))
 wall_colors = [I.colorant"red",I.colorant"green",I.colorant"blue",I.colorant"yellow"]
 # wall_colors = [I.colorant"red",I.colorant"red",I.colorant"red",I.colorant"red"]
-@time rgb, depth = GL.gl_render(renderer, 
-     [1,2,3,4], [P.IDENTITY_POSE, P.IDENTITY_POSE,P.IDENTITY_POSE,P.IDENTITY_POSE],
+@time rgb, depth = GL.gl_render(
+    renderer, 
+    [1,2,3,4], [P.IDENTITY_POSE, P.IDENTITY_POSE,P.IDENTITY_POSE,P.IDENTITY_POSE],
     wall_colors, 
-    cam_pose)
+    cam_pose
+)
 PL.heatmap(depth)
 
 img = I.colorview(I.RGB,permutedims(rgb,(3,1,2))[1:3,:,:])
@@ -219,18 +216,47 @@ get_sense_depth(tr,t) = tr[sense_depth_addr(t)]
 
 Gen.@load_generated_functions
 
-function viz_env()
-    PL.scatter(room_cloud[1,:], room_cloud[3,:], label=false)
+function viz_env(;wall_colors=nothing)
+    width = 5
+    if isnothing(wall_colors)
+        c = I.colorant"blue"
+        PL.plot!([room_width_bounds[1],room_width_bounds[1]],
+                [room_height_bounds[1],room_height_bounds[2]], linewidth=width,
+            color=c,label=false)
+        PL.plot!([room_width_bounds[2],room_width_bounds[2]],
+                [room_height_bounds[1],room_height_bounds[2]], linewidth=width,
+            color=c,label=false)
+        PL.plot!([room_width_bounds[1],room_width_bounds[2]],
+                [room_height_bounds[1],room_height_bounds[1]], linewidth=width,
+            color=c,label=false)
+        PL.plot!([room_width_bounds[1],room_width_bounds[2]],
+                [room_height_bounds[2],room_height_bounds[2]], linewidth=width,
+            color=c,label=false)
+    else
+        PL.plot!([room_width_bounds[1],room_width_bounds[1]],
+                [room_height_bounds[1],room_height_bounds[2]], linewidth=width,
+            color=wall_colors[1],label=false)
+        PL.plot!([room_width_bounds[2],room_width_bounds[2]],
+                [room_height_bounds[1],room_height_bounds[2]], linewidth=width,
+            color=wall_colors[2],label=false)
+        PL.plot!([room_width_bounds[1],room_width_bounds[2]],
+                [room_height_bounds[1],room_height_bounds[1]], linewidth=width,
+            color=wall_colors[3],label=false)
+        PL.plot!([room_width_bounds[1],room_width_bounds[2]],
+                [room_height_bounds[2],room_height_bounds[2]], linewidth=width,
+            color=wall_colors[4],label=false)
+        
+    end
 end
 
-function viz_pose(pose)
+function viz_pose(pose; alpha=1.0)
     pos = pose.pos
-    PL.scatter!([pos[1]], [pos[3]],label=false)
+    PL.scatter!([pos[1]], [pos[3]],color=:red,alpha=alpha,label=false)
 
     direction = pose.orientation * [0.0, 0.0, 1.0]
     PL.plot!([pos[1], pos[1]+direction[1]],
              [pos[3], pos[3]+direction[3]],
-             arrow=true,color=:black,linewidth=2, label=false)
+             arrow=true,color=:black, linewidth=2, alpha=alpha,label=false)
 end
 
 function viz_obs(tr,t)
@@ -336,11 +362,11 @@ end
 sense = get_depth(tr_gt,1)
 corners = get_corners(sense)
 cloud = GL.flatten_point_cloud(GL.depth_image_to_point_cloud(reshape(sense,(camera_intrinsics.height, camera_intrinsics.width)), camera_intrinsics))
-PL.scatter(cloud[1,:], cloud[3,:])
+PL.scatter(cloud[1,:], cloud[3,:], label="")
 for c in corners
     viz_corner(c)
 end
-PL.plot!(xlim=(-10,10),ylim=(-10,10), aspect_ratio=:equal)
+PL.plot!(xlim=(-10,10),ylim=(-10,10), aspect_ratio=:equal, label="")
 
 # +
 sense = get_depth(tr_gt,1)
@@ -398,16 +424,16 @@ end
 T = 5
 constraints = 
     Gen.choicemap(
-        pose_addr(1)=>P.Pose([-3.0, 0.0, -1.0], R.RotY(pi+pi/4))
+        pose_addr(1)=>P.Pose([-2.0, 0.0, -3.0], R.RotY(pi))
     )
 for t in 2:T
     constraints[pose_addr(t)] = constraints[pose_addr(t-1)] * P.Pose(zeros(3), R.RotY(deg2rad(25.0)))
 end
 
 import LinearAlgebra
-# wall_colors = [I.colorant"red",I.colorant"green",I.colorant"blue",I.colorant"yellow"]
-wall_colors = [I.colorant"red",I.colorant"red",I.colorant"red",I.colorant"red"]
-cov = Matrix{Float64}(LinearAlgebra.I, camera_intrinsics.width, camera_intrinsics.width) * 0.5;
+wall_colors = [I.colorant"firebrick1",I.colorant"goldenrod1",I.colorant"green3",I.colorant"dodgerblue2"]
+wall_colors = [I.colorant"firebrick1" for _ in 1:4]
+cov = Matrix{Float64}(LinearAlgebra.I, camera_intrinsics.width, camera_intrinsics.width) * 0.3;
 tr_gt, w = Gen.generate(slam_multi_timestep, (T, nothing, room_bounds_uniform_params,wall_colors,cov,), constraints);
 @show Gen.get_score(tr_gt)
 viz_trace(tr_gt, [1])
@@ -421,24 +447,32 @@ for c in corners
         push!(poses, p)
     end
 end
+@show length(poses)
 
-t = 1
+if length(poses) > 0
 @time pf_state = PF.pf_initialize(slam_multi_timestep,
     (1,Gen.get_args(tr_gt)[2:end]...),
     Gen.choicemap(sense_depth_addr(t) => get_depth(tr_gt,t)[:], sense_rgb_addr(t) => get_rgb(tr_gt,t)),
     pose_mixture_proposal, (nothing, poses, 1,[1.0 0.0;0.0 1.0] * 0.05, deg2rad(2.0)),
-    100);
+    2000);
 
-PF.pf_move_accept!(pf_state, Gen.metropolis_hastings, (position_drift_proposal, 
-        (t,[1.0 0.0;0.0 1.0] * 0.1)), 10);
-PF.pf_move_accept!(pf_state, Gen.metropolis_hastings, (head_direction_drift_proposal, 
-        (t,deg2rad(1.0))), 10);
-PF.pf_move_accept!(pf_state, Gen.metropolis_hastings, (joint_pose_drift_proposal, 
-        (t,[1.0 0.0;0.0 1.0] * 0.1, deg2rad(1.0))), 10);
+else
+    pf_state = PF.pf_initialize(slam_multi_timestep,
+        (1,Gen.get_args(tr_gt)[2:end]...),
+    Gen.choicemap(sense_depth_addr(t) => get_depth(tr_gt,t)[:], sense_rgb_addr(t) => get_rgb(tr_gt,t)),
+    4000);
+end
+
+# PF.pf_move_accept!(pf_state, Gen.metropolis_hastings, (position_drift_proposal, 
+#         (t,[1.0 0.0;0.0 1.0] * 0.1)), 100);
+# PF.pf_move_accept!(pf_state, Gen.metropolis_hastings, (head_direction_drift_proposal, 
+#         (t,deg2rad(1.0))), 100);
+# PF.pf_move_accept!(pf_state, Gen.metropolis_hastings, (joint_pose_drift_proposal, 
+#         (t,[1.0 0.0;0.0 1.0] * 0.1, deg2rad(1.0))), 100);
 # -
 
 order = sortperm(pf_state.log_weights,rev=true)
-best_tr = pf_state.traces[order[3]]
+best_tr = pf_state.traces[order[1]]
 @show Gen.get_score(best_tr)
 @show Gen.project(best_tr, Gen.select(pose_addr(1)))
 pose = best_tr[pose_addr(1)]
@@ -449,13 +483,60 @@ viz_trace(best_tr, [1])
 z = Gen.logsumexp(pf_state.log_weights)
 log_weights = pf_state.log_weights .- z
 weights = exp.(log_weights)
-@show sum(weights)
-weights
+PL.plot(weights)
 
-tr = best_tr
-a=I.colorview(I.RGBA,permutedims(get_rgb(tr,1),(3,1,2)))
-b = I.colorview(I.RGBA,permutedims(get_sense_rgb(tr,1),(3,1,2)))
-vcat(a,b)
+# +
+PL.plot()
+viz_env(;wall_colors=wall_colors)
+
+z = Gen.logsumexp(pf_state.log_weights)
+log_weights = pf_state.log_weights .- z
+weights = exp.(log_weights)
+for i in 1:length(pf_state.traces)
+    tr = pf_state.traces[i]
+    p = get_pose(tr, 1)
+    lambda = 0.001
+    viz_pose(p,alpha= lambda + (1.0-lambda) * weights[i])
+end
+p = PL.plot!(ticks=nothing, border=nothing, xaxis=:off,yaxis=:off, xlim=(-9,9),ylim=(-6,6),title="Inferred Pose Posterior")
+p
+
+# +
+PL.plot()
+viz_env(;wall_colors=wall_colors)
+
+tr = tr_gt
+pose = get_pose(tr,t)
+depth = get_depth(tr,t)
+sense = get_sense_depth(tr,t)
+
+cloud = GL.flatten_point_cloud(GL.depth_image_to_point_cloud(depth, camera_intrinsics))
+cloud = GL.move_points_to_frame_b(cloud, pose)
+for i in 1:size(cloud)[2]
+   PL.plot!([pose.pos[1], cloud[1,i]], [pose.pos[3], cloud[3,i]],
+            color=I.colorant"grey90",
+            linewidth=2,
+            label=false) 
+end
+
+
+viz_pose(pose)
+p2 = PL.plot!(ticks=nothing, border=nothing, xaxis=:off,yaxis=:off, xlim=(-9,9),ylim=(-6,6),title="Ground Truth")
+p2
+# -
+
+PL.plot(p2,p, size=(1200,400))
+PL.savefig("all.png")
+
+
+
+
+
+
+
+
+
+
 
 # +
 corners = get_corners(get_depth(tr_gt,1))
