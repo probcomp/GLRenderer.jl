@@ -322,7 +322,6 @@ class GLRenderer:
             positionAttrib = GL.glGetAttribLocation(self.shaderProgram_depth, 'position')
             
             GL.glEnableVertexAttribArray(0)
-            GL.glEnableVertexAttribArray(1)
 
             GL.glVertexAttribPointer(positionAttrib, 3, GL.GL_FLOAT, GL.GL_FALSE, 12, None)
 
@@ -346,7 +345,6 @@ class GLRenderer:
     
             GL.glEnableVertexAttribArray(0)
             GL.glEnableVertexAttribArray(1)
-            GL.glEnableVertexAttribArray(2)
 
             GL.glVertexAttribPointer(positionAttrib, 3, GL.GL_FLOAT, GL.GL_FALSE, 24, None)
             GL.glVertexAttribPointer(normalAttrib, 3, GL.GL_FLOAT, GL.GL_FALSE, 24, ctypes.c_void_p(12))
@@ -385,7 +383,6 @@ class GLRenderer:
         self.VAOs.append(VAO)
         self.VBOs.append(VBO)
         self.faces.append(faces)
-        self.faces.append(faces)
 
     def render(self, cls_indexes, poses, colors=None):
         frame = 0
@@ -406,7 +403,7 @@ class GLRenderer:
                                       GL.GL_FALSE, trans)
                 GL.glUniformMatrix4fv(GL.glGetUniformLocation(self.shaderProgram_depth, 'pose_rot'), 1,
                                       GL.GL_TRUE, rot)
-            elif self.render_type == "rgb":            
+            elif self.render_type == "rgb":
                 GL.glUseProgram(self.shaderProgram_rgb)
                 GL.glUniformMatrix4fv(GL.glGetUniformLocation(self.shaderProgram_rgb, 'V'), 1, GL.GL_TRUE,
                                       self.V)
