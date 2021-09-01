@@ -358,7 +358,7 @@ version = "0.1.6"
 
 [[Geometry]]
 deps = ["FileIO", "GeometryTypes", "LinearAlgebra", "Memoize", "Parameters", "PyCall", "Quaternions"]
-path = "/home/nishadg/mcs/Geometry/"
+path = "/home/falk/.julia/dev/Geometry"
 uuid = "c612f79c-9085-4a9b-8541-08715a5261fc"
 version = "0.1.0"
 
