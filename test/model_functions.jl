@@ -102,11 +102,12 @@ end
 slam_unfolded = Gen.Unfold(slam_unfold_kernel)
 
 """
-`T`: Number of time steps
-prev_data Previous data, nothing in first time step
-room_bounds
-wall_colors
-cov: Covariance in depth observation model
+# Arguments
+- `T`: Number of time steps
+- `prev_data`: Previous data, nothing in first time step
+- `room_bounds`: Room boundaries
+- `wall_colors`: Colors of each wall
+- `cov`: Covariance in depth observation model
 """
 @Gen.gen (static) function slam_multi_timestep(T, prev_data, room_bounds, wall_colors, cov)
     slam ~ slam_unfolded(T, prev_data, room_bounds, wall_colors, cov)
