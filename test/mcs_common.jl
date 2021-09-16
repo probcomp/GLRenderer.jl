@@ -22,7 +22,8 @@ function get_corners(sense, with_index::Bool)
 end
 
 function get_corners(sense)
-    cloud = GL.flatten_point_cloud(GL.depth_image_to_point_cloud(reshape(sense,(camera_intrinsics.height, camera_intrinsics.width)), camera_intrinsics))
+    cloud = GL.flatten_point_cloud(GL.depth_image_to_point_cloud(
+        reshape(sense,(camera_intrinsics.height, camera_intrinsics.width)), camera_intrinsics))
     cloud = vcat(cloud[1,:]', cloud[3,:]')
     deltas = diff(cloud,dims=2)
     dirs = map(x->R.RotMatrix{2,Float32}(atan(x[2],x[1])), eachcol(deltas))
@@ -84,8 +85,7 @@ end
 Same as `get_scanline()`, but works on camera frame point cloud
 without depending on global coordinates. Based on `detect_corner_from_camera_frame(agent)`.
 """
-function get_scanline_from_camera_frame(agent::Agent, intrinsics::CameraIntrinsics;
-        verbose = false)
+function get_scanline_from_camera_frame(agent::Agent, intrinsics::CameraIntrinsics; verbose = false)
     
     step_metadata = agent.step_metadatas[end]
     
@@ -231,8 +231,13 @@ end
 Prints agents ground truth position and rotation.
 """
 function print_mcs_gt_pose(agent::Agent, time_step)
-    agent_pose_gt_mcs_pos = agent.step_metadatas[time_step].position
-    agent_pose_gt_mcs_rot = agent.step_metadatas[time_step].rotation
+    if time_step < 1
+        agent_pose_gt_mcs_pos = agent.step_metadatas[end].position
+        agent_pose_gt_mcs_rot = agent.step_metadatas[end].rotation
+    else
+        agent_pose_gt_mcs_pos = agent.step_metadatas[time_step].position
+        agent_pose_gt_mcs_rot = agent.step_metadatas[time_step].rotation
+    end
     println("MCS Agent GT Position: $(agent_pose_gt_mcs_pos) Rotation: $(agent_pose_gt_mcs_rot)")
     return agent_pose_gt_mcs_pos, agent_pose_gt_mcs_rot
 end
@@ -245,7 +250,7 @@ Generates scene definition based on provided parameters.
 """
 function generate_scene(;agent_pos_x = 0, agent_pos_z = 0,
     agent_rot_x = 0, agent_rot_y = 0,
-    room_dim_x = 16, room_dim_y = 8, room_dim_z = 4,
+    room_dim_x = 16, room_dim_z = 8, room_dim_y = 4,  # Make sure to get x,z,y right, agent in x,z plane, first 2 values
     color1 = "AI2-THOR/Materials/Walls/DrywallGreen",
     color2 = "AI2-THOR/Materials/Walls/RedDrywall",
     color3 = "AI2-THOR/Materials/Walls/EggshellDrywall",

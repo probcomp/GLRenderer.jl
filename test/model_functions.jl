@@ -42,10 +42,10 @@ function Gen.random(::ColorDistribution, color, p)
 end
 function Gen.logpdf(::ColorDistribution, obs_color, color, p)
     n = length(wall_colors)
-    img = Images.colorview(Images.RGB,permutedims(obs_color, (3,1,2))[1:3,:,:])
+    img = Images.colorview(Images.RGB,permutedims(obs_color, (3, 1, 2))[1:3, :, :])
     obs = map(argmin, eachcol(vcat([I.colordiff.(img, c) for c in wall_colors]...)))
     
-    img = Images.colorview(Images.RGB,permutedims(color, (3,1,2))[1:3,:,:])
+    img = Images.colorview(Images.RGB,permutedims(color, (3,1,2))[1:3, :, :])
     base = map(argmin, eachcol(vcat([I.colordiff.(img, c) for c in wall_colors]...)))
     
     disagree = sum(base .!= obs)
@@ -74,7 +74,7 @@ end
 end
 
 @Gen.gen function head_direction_drift_proposal(trace, t,var)
-   {pose_addr(t)} ~ pose_gaussian(trace[pose_addr(t)], [1.0 0.0;0.0 1.0] * 0.00001, var) 
+   {pose_addr(t)} ~ pose_gaussian(trace[pose_addr(t)], [1.0 0.0; 0.0 1.0] * 0.00001, var) 
 end
 
 @Gen.gen function joint_pose_drift_proposal(trace, t, cov, var)
@@ -87,7 +87,8 @@ end
     if t==1
         pose ~ pose_uniform(room_bounds[1,:], room_bounds[2,:])
     else
-        pose ~ pose_gaussian(prev_data.pose, [1.0 0.0;0.0 1.0] * 0.1, deg2rad(20.0))
+        # TODO At some point use 10 degree rotation plus little  Gaussian noise
+        pose ~ pose_gaussian(prev_data.pose, [1.0 0.0; 0.0 1.0] * 0.1, deg2rad(20.0))
     end
     rgb, depth = GL.gl_render(renderer, 
      [1,2,3,4], [P.IDENTITY_POSE, P.IDENTITY_POSE,P.IDENTITY_POSE,P.IDENTITY_POSE],
@@ -100,6 +101,13 @@ end
 
 slam_unfolded = Gen.Unfold(slam_unfold_kernel)
 
+"""
+`T`: Number of time steps
+prev_data Previous data, nothing in first time step
+room_bounds
+wall_colors
+cov: Covariance in depth observation model
+"""
 @Gen.gen (static) function slam_multi_timestep(T, prev_data, room_bounds, wall_colors, cov)
     slam ~ slam_unfolded(T, prev_data, room_bounds, wall_colors, cov)
     return slam

@@ -63,11 +63,12 @@ mcs_config_path=ENV["MCS_CONFIG_FILE_PATH"]
 # mcs_executable_path=ENV["MCS_EXECUTABLE_PATH"]
 mcs_executable_path = "/home/falk/mitibm/AI2Thor_MCS/MCS-AI2-THOR-Unity-App-v0.4.4-linux/MCS-AI2-THOR-Unity-App-v0.4.4.x86_64"
 
-# config_data, status = mcs.load_scene_json_file(scene_path)
-config_data = generate_scene()
-
 controller = mcs.create_controller(unity_app_file_path=mcs_executable_path,
                                    config_file_path=mcs_config_path)
+
+# +
+# config_data, status = mcs.load_scene_json_file(scene_path)
+config_data = generate_scene(agent_pos_x = -2.0, agent_pos_z = 1.0)
 step_metadata = controller.start_scene(config_data)
 
 config = McsConfiguration()
@@ -80,6 +81,11 @@ agent = Agent(intrinsics, [step_metadata], [],
 
 # Overwrite pram_mode so we don't need to deal with Redis etc.
 agent.config.compute_configuration.pram_mode = "submission";  # usually ENV["PRAM_MODE"]
+
+# +
+# Could explore environment
+# execute_command(controller, agent, "MoveAhead")  # MoveAhead, RotateRight, ...
+# print_mcs_gt_pose(agent, -1)
 # -
 
 # ## Initialize GLRenderer Environment
@@ -110,6 +116,7 @@ room_cloud_2 = hcat(room_cloud_2...)
 room_cloud_3 = hcat(room_cloud_3...)
 room_cloud_4 = hcat(room_cloud_4...)
 
+# Need to mesh walls in order to render them
 v1, n1, f1 = GL.mesh_from_voxelized_cloud(GL.voxelize(room_cloud_1, resolution), resolution)
 v2, n2, f2 = GL.mesh_from_voxelized_cloud(GL.voxelize(room_cloud_2, resolution), resolution)
 v3, n3, f3 = GL.mesh_from_voxelized_cloud(GL.voxelize(room_cloud_3, resolution), resolution)
@@ -117,22 +124,25 @@ v4, n4, f4 = GL.mesh_from_voxelized_cloud(GL.voxelize(room_cloud_4, resolution),
 
 room_cloud = hcat(room_cloud_1, room_cloud_2, room_cloud_3, room_cloud_4)
 
-PL.scatter(room_cloud_1[1,:], room_cloud_1[3,:],label="")
-PL.scatter!(room_cloud_2[1,:], room_cloud_2[3,:],label="")
-PL.scatter!(room_cloud_3[1,:], room_cloud_3[3,:],label="")
-PL.scatter!(room_cloud_4[1,:], room_cloud_4[3,:],label="")
+PL.scatter(room_cloud_1[1,:], room_cloud_1[3,:], label="")
+PL.scatter!(room_cloud_2[1,:], room_cloud_2[3,:], label="")
+PL.scatter!(room_cloud_3[1,:], room_cloud_3[3,:], label="")
+PL.scatter!(room_cloud_4[1,:], room_cloud_4[3,:], label="")
 
-# PL.scatter!(v2[:,1],v2[:,3],label="")
-# PL.scatter!(v3[:,1],v3[:,3],label="")
-# PL.scatter!(v4[:,1],v4[:,3],label="")
+# PL.scatter!(v2[:,1], v2[:,3], label="")
+# PL.scatter!(v3[:,1], v3[:,3], label="")
+# PL.scatter!(v4[:,1], v4[:,3], label="")
 
 # +
+# MCS camera intrinsics
 camera_intrinsics_mcs = Geometry.CameraIntrinsics(
     600, 400,
     514.2991467983065, 514.2991467983065,
     300.0, 200.0,
     0.1, 25.0
 )
+
+# Convert camera intrinsics to match downsampling
 camera_intrinsics = convert_camera_intrinsics(camera_intrinsics_mcs, 40)
 
 renderer = GL.setup_renderer(camera_intrinsics, GL.RGBBasicMode())
@@ -149,32 +159,14 @@ renderer.gl_instance.lightpos = [0, 0, 0]
 # Camera Pose
 cam_pose = P.Pose(zeros(3), R.RotY(-pi/4+ 0.0))
 
+# Define Wall Colors
 # wall_colors = [I.colorant"red",I.colorant"green",I.colorant"blue",I.colorant"yellow"]
 wall_colors = [I.colorant"blue", I.colorant"blue", I.colorant"blue", I.colorant"blue"]
-
-# +
-# rgb, depth = GL.gl_render(
-#     renderer, 
-#     [1,2,3,4],
-#     [P.IDENTITY_POSE, P.IDENTITY_POSE, P.IDENTITY_POSE, P.IDENTITY_POSE],
-#     wall_colors,
-#     P.Pose([0.0, -10.0, 0.0], R.RotX(-pi/2))
-# )
-# # PL.heatmap(depth, aspect_ratio=:equal)
-# I.colorview(I.RGBA, permutedims(rgb,(3,1,2)))
-# @show rgb
 # -
 
 # Note: `depth` until here has size `(600, 600)`, but in next cell will be `(1, 14)` - see first line of `camera_intrinsics` parameters.
 
 # +
-# renderer = GL.setup_renderer(camera_intrinsics, GL.RGBBasicMode())
-# GL.load_object!(renderer, v1, n1, f1)
-# GL.load_object!(renderer, v2, n2, f2)
-# GL.load_object!(renderer, v3, n3, f3)
-# GL.load_object!(renderer, v4, n4, f4)
-# renderer.gl_instance.lightpos = [0, 0, 0]
-
 @time rgb, depth = GL.gl_render(
     renderer, 
     [1,2,3,4], [P.IDENTITY_POSE, P.IDENTITY_POSE, P.IDENTITY_POSE, P.IDENTITY_POSE],
@@ -192,15 +184,20 @@ img
 
 # Rotate in MCS and collect rows.
 
-# Collect rows of interest (rois)
-# THIS TAKES STEPS IN THE ENVIRONMENT
-rois = collect_rows(agent, intrinsics, 36)
+# Rows is collection of one row per frame containing just walls in 360° rotation
+# SIDE EFFECT: THIS TAKES STEPS IN THE ENVIRONMENT
+rows = collect_rows(agent, intrinsics, 36);
 
-# Show range of rows
-print_rows(rois, 10, 10)
+# +
+# Currently, we focus on a single time step for reorientation
+time_step_to_analyze = 8
 
-# w.l.o.g. get time step 9
-sense, sense_rgb, color_tuple_vector, corners, corner_indices = sense_environment(rois, 10)
+# Show range of rows - <rows, from, to> [if from==to, show single row]
+print_rows(rows, time_step_to_analyze, time_step_to_analyze)
+# -
+
+# Compute depth sense and RGB sense, colors for plotting, corners and corner indices
+sense, sense_rgb, color_tuple_vector, corners, corner_indices = sense_environment(rows, time_step_to_analyze)
 
 # Compute cloud and plot sense with corners and averaged color segments
 cloud = GL.flatten_point_cloud(
@@ -209,7 +206,7 @@ cloud = GL.flatten_point_cloud(
             ),
             camera_intrinsics)
         )
-plt.scatter(cloud[1,:], cloud[3,:], c=color_tuple_vector, marker="o")
+plt.scatter(cloud[1, :], cloud[3, :], c=color_tuple_vector, marker="o")
 
 # We could generate ground truth and render it:
 # ```julia
@@ -222,38 +219,29 @@ plt.scatter(cloud[1,:], cloud[3,:], c=color_tuple_vector, marker="o")
 
 # Define room corners.
 
-# +
 corner_1 = P.Pose([room_width_bounds[1], 0.0, room_height_bounds[1]], R.RotY(-pi/4))
 corner_2 = P.Pose([room_width_bounds[1], 0.0, room_height_bounds[2]], R.RotY(pi/4))
 corner_3 = P.Pose([room_width_bounds[2], 0.0, room_height_bounds[1]], R.RotY(pi+pi/4))
 corner_4 = P.Pose([room_width_bounds[2], 0.0, room_height_bounds[2]], R.RotY(pi-pi/4))
-
-# Plot corners
-PL.plot()
-viz_env()
 gt_corners = [corner_1, corner_2, corner_3, corner_4]
-for c in gt_corners
-    viz_corner(c)
-end
-# TODO: Write corner detection function that finds corners given an occupancy grid (aka point cloud) of the room.
-PL.plot!()
-# -
 
-# Plot individual corner
+# Plot individual corner(s) in observation. Note: Corners one index away from extrema are ignored.
 
 # +
 cloud = GL.flatten_point_cloud(GL.depth_image_to_point_cloud(
                 reshape(sense, (camera_intrinsics.height, camera_intrinsics.width)),
         camera_intrinsics))
 
-PL.scatter(cloud[1,:], cloud[3,:], label="")
+PL.scatter(cloud[1, :], cloud[3, :], label="")
 for c in corners
     viz_corner(c)
 end
-PL.plot!(xlim=(-10,10),ylim=(-10,10), aspect_ratio=:equal, label="")
+PL.plot!(xlim=(-10, 10), ylim=(-10, 10), aspect_ratio=:equal, label="")
+# -
+
+# Invert camera-coordinate-corner relative to ground truth corner.
 
 # +
-# corners = get_corners(sense, false)
 poses = []
 for c in corners
     for c2 in gt_corners
@@ -276,82 +264,38 @@ PL.plot!()
 
 # # Inference
 
-# After this step
 # - Both `sense_rgb` and `get_rgb(tr_gt, 1)` are 3-dim. float array (`Array{Float64, 3}`) of size `(1, 15, 4)`
 # - Both `sense` and `get_depth(tr_gt, 1)` are `Matrix` (`Array{Float64, 2}`) of size `(1, 15)`
 
 # +
-t=1
+# Blank out color (for now)
+sense_rgb[:] .= 0.0
 
-# FIXME If corner is too close (1 step?) to edge, the corner detector fails to detect the corner
-sense, sense_rgb, _, _, _ = sense_environment(rois, 10)
-corners = get_corners(sense[:], false)
-print_mcs_gt_pose(agent, 9)
-
-cloud = GL.flatten_point_cloud(GL.depth_image_to_point_cloud(reshape(sense,
-            (camera_intrinsics.height, camera_intrinsics.width)), camera_intrinsics))
-# plt.scatter(cloud[1,:], cloud[3,:], c=color_tuple_vector, marker="o")
-# # corners = get_corners(get_depth(tr_gt, 1), false)  # Corners signature
-
-poses = []
-for c in corners
-    for c2 in gt_corners
-        p = c2 * inv(c)
-        push!(poses, p)
-    end
-end
-@show length(poses)
-
-PL.plot()
-viz_env()
-for p in poses
-    println("Pose to visualize: $(p)")
-   viz_pose(p)
-end
-for c in gt_corners
-   viz_corner(c) 
-end
-PL.plot!()
-# -
-
-# Blank out color
-sense_rgb[:] .= 0.0;
-
-# +
-t = 1
-# obs = Gen.choicemap(sense_depth_addr(t) => sense, sense_rgb_addr(t) => sense_rgb)
-
+# TODO 1 is the number of time steps and becomes 36 or so when we rotate
 cov = Matrix{Float64}(LinearAlgebra.I, camera_intrinsics.width, camera_intrinsics.width) * 0.01;
-tr_gt, w = Gen.generate(slam_multi_timestep, (1, nothing, room_bounds_uniform_params, wall_colors, cov,));
 
-# +
-# (5, nothing, room_bounds_uniform_params, wall_colors, cov,)
 if length(poses) > 0
 @time pf_state = PF.pf_initialize(slam_multi_timestep,
-        # TODO: remove dependence on tr_gt. since this is no longer a thing
-        # instead write out the paramters yourself, which will allow you to set the wall_colors explicitly
-        # for the first round of deubgging to make sure the "kidnapped" thing works , set sense_rgb to the same value everywhere and the wall colors to the same value everywhere
-
-    (1, Gen.get_args(tr_gt)[2:end]...),
+        (1, nothing, room_bounds_uniform_params, wall_colors, cov,),
     Gen.choicemap(sense_depth_addr(t) => sense[:], sense_rgb_addr(t) => sense_rgb),
     pose_mixture_proposal, (nothing, poses, 1, [1.0 0.0;0.0 1.0] * 0.05, deg2rad(2.0)),
     2000);
-
 else
     pf_state = PF.pf_initialize(slam_multi_timestep,
-        (1, Gen.get_args(tr_gt)[2:end]...),
+        (1, nothing, room_bounds_uniform_params, wall_colors, cov,),
     Gen.choicemap(sense_depth_addr(t) => sense[:], sense_rgb_addr(t) => sense_rgb),
     4000);
 end
 # -
 
-order = sortperm(pf_state.log_weights,rev=true)
+order = sortperm(pf_state.log_weights, rev=true)
 best_tr = pf_state.traces[order[1]]
 @show Gen.get_score(best_tr)
 @show Gen.project(best_tr, Gen.select(pose_addr(1)))
 pose = best_tr[pose_addr(1)]
 @show pose
 viz_trace(best_tr, [1], camera_intrinsics)
+p0 = PL.plot!(ticks=nothing, border=nothing, xaxis=:off, yaxis=:off, xlim=(-10,10), ylim=(-6,6), title="Best Trace")
 
 # +
 PL.plot()
@@ -364,11 +308,47 @@ for i in 1:length(pf_state.traces)
     tr = pf_state.traces[i]
     p = get_pose(tr, 1)
     lambda = 0.001
-    viz_pose(p,alpha= lambda + (1.0-lambda) * weights[i])
+    viz_pose(p, alpha=lambda + (1.0-lambda) * weights[i])
 end
-p = PL.plot!(ticks=nothing, border=nothing, xaxis=:off,yaxis=:off, xlim=(-9,9), ylim=(-6,6),title="Inferred Pose Posterior")
-p
+# Inferred Pose Posterior
+p1 = PL.plot!(ticks=nothing, border=nothing, xaxis=:off,yaxis=:off, xlim=(-9,9), ylim=(-6,6), title="Inferred")
+p1
+# +
+agent_pose_gt_mcs_pos, agent_pose_gt_mcs_rot = print_mcs_gt_pose(agent, time_step_to_analyze)
+
+PL.plot()
+viz_env(;wall_colors=wall_colors)
+
+pose2 = P.Pose([agent_pose_gt_mcs_pos["x"], agent_pose_gt_mcs_pos["y"], agent_pose_gt_mcs_pos["z"]],
+    R.RotY(deg2rad(agent_pose_gt_mcs_rot)))
+println("Extracted pose: $(pose)")
+
+# Could render rays
+cloud = GL.flatten_point_cloud(
+            GL.depth_image_to_point_cloud(
+                reshape(sense, (camera_intrinsics.height, camera_intrinsics.width)
+            ),
+            camera_intrinsics)
+        )
+cloud = GL.move_points_to_frame_b(cloud, pose2)
+for i in 1:size(cloud)[2]
+   PL.plot!([pose2.pos[1], cloud[1, i]], [pose2.pos[3], cloud[3,i]],
+            color=I.colorant"grey90",
+            linewidth=2,
+            label=false) 
+end
+
+viz_pose(pose2)
+orientation = agent_pose_gt_mcs_rot  # rad2deg(rotation_angle(pose.orientation))
+title_str = "GT ($(round(pose.pos[1]; sigdigits=2)), $(round(pose.pos[3]; sigdigits=2))), $(round(orientation; sigdigits=2))°"
+p2 = PL.plot!(ticks=nothing, border=nothing, xaxis=:off, yaxis=:off, xlim=(-9,9), ylim=(-6,6), title=title_str)
+p2
 # -
+
+PL.plot(p1, p0, p2, layout=(3, 1), legend=false, aspect_ratio=:equal, size=(700, 700))
+
+# # Nothing below this should matter for now
+
 poses = []
 for c in corners
     for c2 in gt_corners
@@ -485,7 +465,7 @@ p2 = PL.plot!(ticks=nothing, border=nothing, xaxis=:off,yaxis=:off, xlim=(-9,9),
 p2
 # -
 
-PL.plot(p2,p, size=(1200,400))
+PL.plot(p2, p, size=(1200,400))
 PL.savefig("all.png")
 
 
