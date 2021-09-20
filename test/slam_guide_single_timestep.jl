@@ -66,24 +66,27 @@ PL.scatter!(room_cloud_4[1,:], room_cloud_4[3,:],label="")
 renderer = GL.setup_renderer(Geometry.CameraIntrinsics(
     600, 600,
     300.0, 300.0,
-    300.0,300.0,
+    300.0, 300.0,
     0.1, 60.0
 ), GL.RGBBasicMode())
 GL.load_object!(renderer, v1, n1, f1)
 GL.load_object!(renderer, v2, n2, f2)
 GL.load_object!(renderer, v3, n3, f3)
 GL.load_object!(renderer, v4, n4, f4)
-renderer.gl_instance.lightpos = [0,0,0]
+renderer.gl_instance.lightpos = [0, 0, 0]
 
 rgb, depth = GL.gl_render(
     renderer, 
     [1,2,3,4],
-    [P.IDENTITY_POSE, P.IDENTITY_POSE,P.IDENTITY_POSE,P.IDENTITY_POSE],
-    [I.colorant"red",I.colorant"green",I.colorant"blue",I.colorant"yellow"],
+    [P.IDENTITY_POSE, P.IDENTITY_POSE, P.IDENTITY_POSE, P.IDENTITY_POSE],
+    [I.colorant"red", I.colorant"green", I.colorant"blue", I.colorant"yellow"],
     P.Pose([0.0, -10.0, 0.0], R.RotX(-pi/2))
 )
 # PL.heatmap(depth, aspect_ratio=:equal)
-I.colorview(I.RGBA,permutedims(rgb,(3,1,2)))
+I.colorview(I.RGBA, permutedims(rgb,(3,1,2)))
+# -
+
+# Note: `depth` until here has size `(600, 600)`, but in next cell will be `(1, 14)` - see first line of `camera_intrinsics` parameters.
 
 # +
 camera_intrinsics = Geometry.CameraIntrinsics(
@@ -97,15 +100,15 @@ GL.load_object!(renderer, v1, n1, f1)
 GL.load_object!(renderer, v2, n2, f2)
 GL.load_object!(renderer, v3, n3, f3)
 GL.load_object!(renderer, v4, n4, f4)
-renderer.gl_instance.lightpos = [0,0,0]
+renderer.gl_instance.lightpos = [0, 0, 0]
 
 
-cam_pose = P.Pose(zeros(3),R.RotY(-pi/4+ 0.0))
+cam_pose = P.Pose(zeros(3), R.RotY(-pi/4+ 0.0))
 wall_colors = [I.colorant"red",I.colorant"green",I.colorant"blue",I.colorant"yellow"]
 # wall_colors = [I.colorant"red",I.colorant"red",I.colorant"red",I.colorant"red"]
 @time rgb, depth = GL.gl_render(
     renderer, 
-    [1,2,3,4], [P.IDENTITY_POSE, P.IDENTITY_POSE,P.IDENTITY_POSE,P.IDENTITY_POSE],
+    [1,2,3,4], [P.IDENTITY_POSE, P.IDENTITY_POSE, P.IDENTITY_POSE, P.IDENTITY_POSE],
     wall_colors, 
     cam_pose
 )
@@ -116,6 +119,8 @@ color = map(argmin, eachcol(vcat([I.colordiff.(img, c) for c in wall_colors]...)
 @show color 
 img
 # -
+
+size(depth)
 
 import Gen
 import Distributions
@@ -291,6 +296,8 @@ function viz_corner(corner_pose)
     PL.plot!([pos[1], pos[1]+direction[1]],[pos[3], pos[3]+direction[3]],arrow=true,color=:red,linewidth=2, label=false)
 end
 # -
+
+size(depth)
 
 # constraints = Gen.choicemap(:pos=>[0.0, 0.0], :hd=>pi/4)
 import LinearAlgebra
