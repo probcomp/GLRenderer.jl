@@ -1,2 +1,3 @@
 src/renderer/build/*
 src/renderer/CppRenderer.egg-info/*
+Manifest.toml
