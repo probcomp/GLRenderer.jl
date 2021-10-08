@@ -24,6 +24,19 @@ function depth_image_to_point_cloud(
     return point_cloud
 end
 
+function point_cloud_to_pixel_coordinates(point_cloud::Matrix{Float64}, intrinsics::CameraIntrinsics)
+    if size(point_cloud)[1] != 3
+        error("expected an 3 x n matrix")
+    end
+
+    point_cloud_normalized =  point_cloud ./ point_cloud[3,:]'
+
+    temp = point_cloud_normalized[1:2, :] .* [intrinsics.fx, intrinsics.fy]
+    temp = temp .+ [intrinsics.cx + 0.5, intrinsics.cy + 0.5]
+    pixel_coords = round.(Int, temp)
+    return pixel_coords
+end
+
 function flatten_point_cloud(point_cloud::Array{Float64,3})
     (height, width, k) = size(point_cloud)
     if k != 3

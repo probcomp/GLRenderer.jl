@@ -2,7 +2,6 @@ import Revise
 import GLRenderer
 import PoseComposition
 import Rotations
-import Geometry
 import Images
 I = Images
 
@@ -10,7 +9,7 @@ R = Rotations
 P = PoseComposition
 GL = GLRenderer
 
-camera_intrinsics = Geometry.CameraIntrinsics(
+camera_intrinsics = GL.CameraIntrinsics(
     640, 480,
     1000.0, 1000.0,
     320.0, 240.0,

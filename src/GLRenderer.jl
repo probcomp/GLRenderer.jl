@@ -3,12 +3,25 @@ module GLRenderer
 using PyCall
 import PoseComposition: Pose
 import Rotations
-import Geometry: CameraIntrinsics
 import Images: Color, RGBA
+import Parameters: @with_kw
+
 const glrenderer_python = PyNULL()
 
 function __init__()
     copy!(glrenderer_python, pyimport("glrenderer"))
+end
+
+
+@with_kw struct CameraIntrinsics
+    width::Int = 640
+    height::Int = 480
+    fx::Float64 = width
+    fy::Float64 = width
+    cx::Float64 = width/2
+    cy::Float64 = height/2
+    near::Float64 = 0.001
+    far::Float64 = 100.0
 end
 
 include("mesh.jl")
@@ -20,6 +33,8 @@ struct DepthMode <: RenderMode end
 struct RGBBasicMode <: RenderMode end
 struct RGBMode <: RenderMode end
 struct TextureMode <: RenderMode end
+
+
 
 mutable struct Renderer{T <: RenderMode}
     gl_instance
