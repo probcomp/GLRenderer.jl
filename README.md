@@ -29,4 +29,6 @@ This package also depends on: [Geometry](https://github.com/probcomp/Geometry) w
 Refer to `test` for examples of each of the types of rendering.
 
 ## Attribution & Licensing
+The code in `src/renderer` originates from [ycb_render](https://github.com/NVlabs/PoseRBPF/tree/master/ycb_render) and is provided under the [NVIDIA Source Code License for PoseRBPF: A Rao-Blackwellized Particle Filter for 6D Object Pose Tracking](https://github.com/NVlabs/PoseRBPF/blob/master/LICENSE.md) for non-commercial research purposes and is also included in the folder (see `src/renderer/LICENSE.md`).
+
 The code in `src/renderer/pybind11` belongs to the [pybind11 project](https://github.com/pybind/pybind11) and is provided under a 3-clause BSD license we provide along with the code in the directory (see `src/renderer/pybind11/LICENSE`).
