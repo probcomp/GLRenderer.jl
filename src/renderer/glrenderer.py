@@ -446,7 +446,7 @@ class GLRenderer:
                 GL.glUniform3f(GL.glGetUniformLocation(self.shaderProgram_rgb, 'light_position'),
                                *self.lightpos)
                 GL.glUniform3f(GL.glGetUniformLocation(self.shaderProgram_rgb, 'instance_color'),
-                               *self.colors[index])
+                               *self.colors[1])
                 GL.glUniform3f(GL.glGetUniformLocation(self.shaderProgram_rgb, 'light_color'), *self.lightcolor)
                 GL.glUniform4f(GL.glGetUniformLocation(self.shaderProgram_rgb, 'color'), *colors[i])
             elif self.render_type == "texture":            
@@ -462,7 +462,7 @@ class GLRenderer:
                 GL.glUniform3f(GL.glGetUniformLocation(self.shaderProgram_texture, 'light_position'),
                                *self.lightpos)
                 GL.glUniform3f(GL.glGetUniformLocation(self.shaderProgram_texture, 'instance_color'),
-                               *self.colors[index])
+                               *self.colors[1])
                 GL.glUniform3f(GL.glGetUniformLocation(self.shaderProgram_texture, 'light_color'), *self.lightcolor)
             else:
                 print("This is a problem!\n")
