@@ -86,6 +86,11 @@ function pose_to_model_matrix(pose::Pose)::Matrix{Float32}
     return mat
 end
 
+function convert_pose_to_array(p)
+    q = Rotations.UnitQuaternion(p.orientation)
+    [p.pos..., q.q.s, q.q.v1, q.q.v2, q.q.v3]
+end
+
 function gl_render(
         renderer::Renderer{DepthMode}, mesh_ids::Vector{Int},
         poses::Vector{Pose}, camera_pose::Pose
@@ -93,12 +98,8 @@ function gl_render(
     renderer.gl_instance.V = pose_to_model_matrix(
         inv(Pose([camera_pose.pos...], camera_pose.orientation)))
 
-    new_poses = [let
-        q = Rotations.UnitQuaternion(p.orientation)
-        [p.pos..., q.w, q.x, q.y, q.z]
-        end 
-    for p in poses
-    ]
+    new_poses = convert_pose_to_array.(poses)
+
     depth_buffer = renderer.gl_instance.render([i-1 for i in mesh_ids], new_poses);
     near,far = renderer.camera_intrinsics.near, renderer.camera_intrinsics.far
     depth = far .* near ./ (far .- (far - near) .* depth_buffer)
@@ -114,12 +115,8 @@ function gl_render(
     renderer.gl_instance.V = pose_to_model_matrix(
         inv(Pose([camera_pose.pos...], camera_pose.orientation)))
 
-    new_poses = [let
-        q = Rotations.UnitQuaternion(p.orientation)
-        [p.pos..., q.w, q.x, q.y, q.z]
-        end 
-    for p in poses
-    ]
+    new_poses = convert_pose_to_array.(poses)
+
     rgb, depth_buffer = renderer.gl_instance.render([i-1 for i in mesh_ids],
         new_poses,
         [[c.r, c.g, c.b, c.alpha] for c in map(RGBA,colors)]
@@ -140,12 +137,8 @@ function gl_render(
     renderer.gl_instance.V = pose_to_model_matrix(
         inv(Pose([camera_pose.pos...], camera_pose.orientation)))
 
-    new_poses = [let
-        q = Rotations.UnitQuaternion(p.orientation)
-        [p.pos..., q.w, q.x, q.y, q.z]
-        end 
-    for p in poses
-    ]
+    new_poses = convert_pose_to_array.(poses)
+
     rgb, depth_buffer = renderer.gl_instance.render([i-1 for i in mesh_ids],
         new_poses,
     );
