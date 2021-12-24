@@ -47,4 +47,8 @@ function mesh_from_voxelized_cloud(cloud, resolution)
     new_v, new_n, new_f
 end
 
+function box_mesh_from_dims(dims)
+    (cube_vertices .* (dims ./ 2.0)'), cube_normals, cube_faces
+end
+
 export voxelize, mesh_from_voxelized_cloud
