@@ -159,6 +159,38 @@ class GLRenderer:
         self.shaderProgram_depth = self.shaders.compileProgram(vertexShader_depth,
                                                                fragmentShader_depth)
 
+        vertexShader_seg = self.shaders.compileShader("""
+        #version 460
+        uniform mat4 V;
+        uniform mat4 P;
+        uniform mat4 pose_rot;
+        uniform mat4 pose_trans;
+        uniform vec4 instance_color; 
+
+        layout (location=0) in vec3 position;
+        out vec4 Instance_id;
+        void main() {
+            gl_Position = P * V * pose_trans * pose_rot * vec4(position, 1);
+            Instance_id = instance_color;
+        }
+        """, GL.GL_VERTEX_SHADER)
+
+        fragmentShader_seg = self.shaders.compileShader("""
+        #version 460
+        in vec4 Instance_id;
+        out vec4 outColor;
+        out vec4 Instance_id_out;
+        void main()
+        {
+            outColor = vec4(1.0, 1.0, 1.0, 1.0);
+            Instance_id_out = Instance_id;
+        }
+        """, GL.GL_FRAGMENT_SHADER)
+
+        self.shaderProgram_seg = self.shaders.compileProgram(vertexShader_seg,
+                                                               fragmentShader_seg)
+
+
         vertexShader_rgb = self.shaders.compileShader("""
         #version 460
         uniform mat4 V;
@@ -237,6 +269,9 @@ class GLRenderer:
         self.shaderProgram_rgb = self.shaders.compileProgram(vertexShader_rgb,
                                                              fragmentShader_rgb)
 
+
+
+
         vertexShader_texture = self.shaders.compileShader("""
         #version 460
         uniform mat4 V;
@@ -308,21 +343,27 @@ class GLRenderer:
         self.fbo = GL.glGenFramebuffers(1)
         self.color_tex = GL.glGenTextures(1)
         self.depth_tex = GL.glGenTextures(1)
+        self.seg_tex = GL.glGenTextures(1)
 
         GL.glBindTexture(GL.GL_TEXTURE_2D, self.color_tex)
         GL.glTexImage2D(GL.GL_TEXTURE_2D, 0, GL.GL_RGBA32F, self.width, self.height, 0,
                         GL.GL_RGBA, GL.GL_UNSIGNED_BYTE, None)
         GL.glBindTexture(GL.GL_TEXTURE_2D, self.depth_tex)
+
         GL.glTexImage2D.wrappedOperation(
             GL.GL_TEXTURE_2D, 0, GL.GL_DEPTH24_STENCIL8, self.width, self.height, 0,
             GL.GL_DEPTH_STENCIL, GL.GL_UNSIGNED_INT_24_8, None)
 
+        GL.glBindTexture(GL.GL_TEXTURE_2D, self.seg_tex)
+        GL.glTexImage2D(GL.GL_TEXTURE_2D, 0, GL.GL_RGBA32F, self.width, self.height, 0,
+                        GL.GL_RGBA, GL.GL_UNSIGNED_BYTE, None)
+
         GL.glBindFramebuffer(GL.GL_FRAMEBUFFER, self.fbo)
         GL.glFramebufferTexture2D(GL.GL_FRAMEBUFFER, GL.GL_COLOR_ATTACHMENT0, GL.GL_TEXTURE_2D, self.color_tex, 0)
-        GL.glFramebufferTexture2D(GL.GL_FRAMEBUFFER, GL.GL_DEPTH_STENCIL_ATTACHMENT, GL.GL_TEXTURE_2D, self.depth_tex,
-                                  0)
+        GL.glFramebufferTexture2D(GL.GL_FRAMEBUFFER, GL.GL_COLOR_ATTACHMENT1, GL.GL_TEXTURE_2D, self.seg_tex, 0)
+        GL.glFramebufferTexture2D(GL.GL_FRAMEBUFFER, GL.GL_DEPTH_STENCIL_ATTACHMENT, GL.GL_TEXTURE_2D, self.depth_tex, 0)
         GL.glViewport(0, 0, self.width, self.height)
-        GL.glDrawBuffers(5, [GL.GL_COLOR_ATTACHMENT0])
+        GL.glDrawBuffers(5, [GL.GL_COLOR_ATTACHMENT0, GL.GL_COLOR_ATTACHMENT1])
 
         assert GL.glCheckFramebufferStatus(
             GL.GL_FRAMEBUFFER) == GL.GL_FRAMEBUFFER_COMPLETE
@@ -346,6 +387,25 @@ class GLRenderer:
             GL.glBufferData(GL.GL_ARRAY_BUFFER, vertexData.nbytes, vertexData, GL.GL_STATIC_DRAW)
 
             positionAttrib = GL.glGetAttribLocation(self.shaderProgram_depth, 'position')
+            
+            GL.glEnableVertexAttribArray(0)
+
+            GL.glVertexAttribPointer(positionAttrib, 3, GL.GL_FLOAT, GL.GL_FALSE, 12, None)
+
+            GL.glBindBuffer(GL.GL_ARRAY_BUFFER, 0)
+            GL.glBindVertexArray(0)
+        elif self.render_type == "segmentation":
+            vertexData = vertices.astype(np.float32)
+
+            VAO = GL.glGenVertexArrays(1)
+            GL.glBindVertexArray(VAO)
+
+            # Need VBO for triangle vertices and texture UV coordinates
+            VBO = GL.glGenBuffers(1)
+            GL.glBindBuffer(GL.GL_ARRAY_BUFFER, VBO)
+            GL.glBufferData(GL.GL_ARRAY_BUFFER, vertexData.nbytes, vertexData, GL.GL_STATIC_DRAW)
+
+            positionAttrib = GL.glGetAttribLocation(self.shaderProgram_seg, 'position')
             
             GL.glEnableVertexAttribArray(0)
 
@@ -429,6 +489,20 @@ class GLRenderer:
                                       GL.GL_FALSE, trans)
                 GL.glUniformMatrix4fv(GL.glGetUniformLocation(self.shaderProgram_depth, 'pose_rot'), 1,
                                       GL.GL_TRUE, rot)
+            elif self.render_type == "segmentation":
+                GL.glUseProgram(self.shaderProgram_seg)
+                trans = np.ascontiguousarray(xyz2mat(poses[i][:3]))
+                rot = np.ascontiguousarray(quat2rotmat(poses[i][3:]))
+                GL.glUniformMatrix4fv(GL.glGetUniformLocation(self.shaderProgram_seg, 'V'), 1, GL.GL_TRUE,
+                                      self.V)
+                GL.glUniformMatrix4fv(GL.glGetUniformLocation(self.shaderProgram_seg, 'P'), 1, GL.GL_FALSE,
+                                      self.P)
+                GL.glUniformMatrix4fv(GL.glGetUniformLocation(self.shaderProgram_seg, 'pose_trans'), 1,
+                                      GL.GL_FALSE, trans)
+                GL.glUniformMatrix4fv(GL.glGetUniformLocation(self.shaderProgram_seg, 'pose_rot'), 1,
+                                      GL.GL_TRUE, rot)
+                v = float(i + 1) / 200.0
+                GL.glUniform4f(GL.glGetUniformLocation(self.shaderProgram_seg, 'instance_color'), *(v,v,v,v))
             elif self.render_type == "rgb" or self.render_type == "rgb_basic":
                 if self.render_type == "rgb":
                     GL.glUseProgram(self.shaderProgram_rgb)
@@ -491,6 +565,15 @@ class GLRenderer:
 
         if self.render_type == "depth":
             return depth_buffer
+        elif self.render_type == "segmentation":
+            GL.glReadBuffer(GL.GL_COLOR_ATTACHMENT1)        
+            seg_buffer = GL.glReadPixels(0, 0, self.width, self.height, GL.GL_BGRA, GL.GL_FLOAT)
+            seg_buffer = np.frombuffer(seg_buffer, dtype = np.float32).reshape(self.width, self.height, 4)
+            seg_buffer = seg_buffer.reshape(self.height, self.width, 4)[::-1, :]
+            seg_buffer = seg_buffer[:,:,0]
+            seg_buffer[ seg_buffer == 1.0] = 0.0
+            seg_buffer = np.round(seg_buffer * 200.0).astype(np.uint32)
+            return depth_buffer, seg_buffer
 
         GL.glReadBuffer(GL.GL_COLOR_ATTACHMENT0)        
         rgb = GL.glReadPixels(0, 0, self.width, self.height, GL.GL_BGRA, GL.GL_FLOAT)

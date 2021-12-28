@@ -1,6 +1,6 @@
 function depth_image_to_point_cloud(
         depth_map::Matrix, intrinsics::CameraIntrinsics;
-        stride_x=1, stride_y=1)
+        stride_x=1, stride_y=1, flatten=true, cut_far_plane=true)
 
     height = intrinsics.height
     width = intrinsics.width
@@ -21,6 +21,21 @@ function depth_image_to_point_cloud(
     point_cloud[:,:,1] = x
     point_cloud[:,:,2] = y
     point_cloud[:,:,3] = z
+
+    if !flatten && cut_far_plane
+        println("Warning!!! cut_far_plane is being ignored because flatten is false.")
+    end
+
+    if flatten
+        point_cloud = flatten_point_cloud(point_cloud)
+        if cut_far_plane
+            point_cloud = point_cloud[:, point_cloud[3,:] .< (intrinsics.far - 0.1)]
+            if size(point_cloud)[2] == 0
+                point_cloud = nothing
+            end 
+        end
+    end
+
     return point_cloud
 end
 

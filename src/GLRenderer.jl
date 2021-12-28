@@ -3,6 +3,7 @@ module GLRenderer
 using PyCall
 import PoseComposition: Pose
 import Rotations
+import Images as I
 import Images: Color, RGBA
 import Parameters: @with_kw
 
@@ -32,6 +33,7 @@ abstract type RenderMode end
 struct DepthMode <: RenderMode end
 struct RGBBasicMode <: RenderMode end
 struct RGBMode <: RenderMode end
+struct SegmentationMode <: RenderMode end
 struct TextureMode <: RenderMode end
 
 
@@ -44,6 +46,8 @@ end
 function setup_renderer(camera_intrinsics::CameraIntrinsics, mode::RenderMode)::Renderer
     if typeof(mode) == DepthMode
         mode_sting = "depth"
+    elseif typeof(mode) == SegmentationMode
+        mode_sting = "segmentation"
     elseif typeof(mode) == RGBBasicMode
         mode_sting = "rgb_basic"
     elseif typeof(mode) == RGBMode
@@ -67,9 +71,13 @@ function setup_renderer(camera_intrinsics::CameraIntrinsics, mode::RenderMode)::
     Renderer{typeof(mode)}(gl_instance, camera_intrinsics)
 end
 
-function load_object!(renderer::Renderer{DepthMode}, vertices, faces)
+function load_object!(renderer::Union{Renderer{DepthMode},Renderer{SegmentationMode}}, vertices, faces)
     renderer.gl_instance.load_object(vertices, false, faces, false, false)
 end
+function load_object!(renderer::Union{Renderer{DepthMode},Renderer{SegmentationMode}}, vertices, normals, faces)
+    renderer.gl_instance.load_object(vertices, false, faces, false, false)
+end
+
 function load_object!(renderer::Union{Renderer{RGBMode},Renderer{RGBBasicMode}}, vertices, normals, faces)
     renderer.gl_instance.load_object(vertices, normals, faces, false, false)
 end
@@ -106,11 +114,26 @@ function gl_render(
     depth
 end
 
+function gl_render(
+        renderer::Renderer{SegmentationMode}, mesh_ids::Vector{Int},
+        poses::Vector{Pose}, camera_pose::Pose
+)
+    renderer.gl_instance.V = pose_to_model_matrix(
+        inv(Pose([camera_pose.pos...], camera_pose.orientation)))
+
+    new_poses = convert_pose_to_array.(poses)
+
+    depth_buffer, seg_buffer = renderer.gl_instance.render([i-1 for i in mesh_ids], new_poses);
+    near,far = renderer.camera_intrinsics.near, renderer.camera_intrinsics.far
+    depth = far .* near ./ (far .- (far - near) .* depth_buffer)
+    depth, seg_buffer
+end
+
 
 
 function gl_render(
     renderer::Union{Renderer{RGBMode},Renderer{RGBBasicMode}}, mesh_ids::Vector{Int},
-    poses::Vector{Pose}, colors::Vector{<:Color}, camera_pose::Pose
+    poses::Vector{Pose}, colors, camera_pose::Pose
 )
     renderer.gl_instance.V = pose_to_model_matrix(
         inv(Pose([camera_pose.pos...], camera_pose.orientation)))
@@ -153,5 +176,28 @@ function gl_render(
 end
 
 export setup_renderer, load_object!, gl_render
+
+
+# Viewing images
+function view_depth_image(depth_image)
+    img = I.colorview(I.Gray, depth_image ./ maximum(depth_image))
+    I.convert.(I.RGBA, img)
+end
+
+function view_rgb_image(rgb_image; in_255=false)
+    if in_255
+        rgb_image = Float64.(rgb_image)./255.0
+    end
+    if size(rgb_image)[3] == 3
+        img = I.colorview(I.RGB, permutedims(rgb_image,(3,1,2)))
+        img = I.convert.(I.RGBA, img)
+    else
+        img = I.colorview(I.RGBA, permutedims(rgb_image,(3,1,2)))
+    end
+    img
+end
+
+
+
 
 end

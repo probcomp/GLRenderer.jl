@@ -21,6 +21,7 @@ import sys
 obj_path = "../../test/035_power_drill/textured_simple.obj"
 texture_path = "../../test/035_power_drill/texture_map.png"
 pose = np.array([0.0, 0.0, 0.3, 1, 0, 0, 0])
+pose2 = np.array([0.0, 0.2, 0.3, 1, 0, 0, 0])
 
 
 renderer = glrenderer.GLRenderer(640, 480, 500.0, 500.0, 320.0, 240.0, 0.01, 10.0, "depth")
@@ -52,7 +53,16 @@ rgb2, depth = renderer.render([0], [pose])
 rgb2 = cv2.cvtColor(rgb2, cv2.COLOR_BGRA2RGBA)
 
 
+renderer = glrenderer.GLRenderer(640, 480, 500.0, 500.0, 320.0, 240.0, 0.01, 10.0, "segmentation")
+p = renderer.load_obj_parameters(obj_path)
+renderer.load_object(*p, None)
+renderer.load_object(*p, None)
+depth5, seg5 = renderer.render([0,1], [pose, pose2])
+
+
+
 plt.matshow(depth1); plt.colorbar(); plt.show()
 plt.imshow(rgb1); plt.colorbar(); plt.show()
 plt.imshow(rgb3); plt.colorbar(); plt.show()
 plt.imshow(rgb2); plt.colorbar(); plt.show()
+plt.matshow(seg5); plt.colorbar(); plt.show()
