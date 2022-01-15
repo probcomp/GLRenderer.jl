@@ -1,18 +1,16 @@
 module GLRenderer
 
-using PyCall
 import PoseComposition: Pose
 import Rotations
 import Images as I
 import Images: Color, RGBA
 import Parameters: @with_kw
+import GLFW
+import PyCall
+using ModernGL
 
-const glrenderer_python = PyNULL()
-
-function __init__()
-    copy!(glrenderer_python, pyimport("glrenderer"))
-end
-
+include("shaders.jl")
+include("utils.jl")
 
 @with_kw struct CameraIntrinsics
     width::Int = 640
@@ -33,149 +31,448 @@ abstract type RenderMode end
 struct DepthMode <: RenderMode end
 struct RGBBasicMode <: RenderMode end
 struct RGBMode <: RenderMode end
-struct SegmentationMode <: RenderMode end
 struct TextureMode <: RenderMode end
 
-
-
 mutable struct Renderer{T <: RenderMode}
-    gl_instance
     camera_intrinsics::CameraIntrinsics
+    shader_program::Any
+    mesh_pointers::Any
+    mesh_sizes::Any
+    textures::Any
+    perspective_matrix::Matrix
 end
 
 function setup_renderer(camera_intrinsics::CameraIntrinsics, mode::RenderMode)::Renderer
-    if typeof(mode) == DepthMode
-        mode_sting = "depth"
-    elseif typeof(mode) == SegmentationMode
-        mode_sting = "segmentation"
-    elseif typeof(mode) == RGBBasicMode
-        mode_sting = "rgb_basic"
-    elseif typeof(mode) == RGBMode
-        mode_sting = "rgb"
-    elseif typeof(mode) == TextureMode
-        mode_sting = "texture"
-    else
-        error("unsupported mode $(mode)")
-    end
-
-    gl_instance = glrenderer_python.GLRenderer(
-        camera_intrinsics.width,
-        camera_intrinsics.height,
+    perspective_matrix = get_perspective_matrix(
+        camera_intrinsics.width, camera_intrinsics.height,
         camera_intrinsics.fx,
         camera_intrinsics.fy,
         camera_intrinsics.cx,
         camera_intrinsics.cy,
         camera_intrinsics.near,
         camera_intrinsics.far,
-        mode_sting)
-    Renderer{typeof(mode)}(gl_instance, camera_intrinsics)
+    )
+
+    window_hint = [
+        # (GLFW.SAMPLES,      0),
+        # (GLFW.DEPTH_BITS,   24),
+        # (GLFW.ALPHA_BITS,   8),
+        # (GLFW.RED_BITS,     8),
+        # (GLFW.GREEN_BITS,   8),
+        # (GLFW.BLUE_BITS,    8),
+        # (GLFW.STENCIL_BITS, 0),
+        # (GLFW.AUX_BUFFERS,  0),
+        (GLFW.CONTEXT_VERSION_MAJOR, 4),
+        (GLFW.CONTEXT_VERSION_MINOR, 1),
+        (GLFW.OPENGL_PROFILE, GLFW.OPENGL_CORE_PROFILE),
+        (GLFW.OPENGL_FORWARD_COMPAT, GL_TRUE),
+        (GLFW.VISIBLE, GL_FALSE)
+    ]
+    for (key, value) in window_hint
+        GLFW.WindowHint(key, value)
+    end
+    window = GLFW.CreateWindow(camera_intrinsics.width, camera_intrinsics.height, "GLRenderer")
+    GLFW.MakeContextCurrent(window)
+    glEnable(GL_DEPTH_TEST)
+    glClear(GL_DEPTH_BUFFER_BIT)
+
+    if typeof(mode) == DepthMode
+        vertex_shader = createShader(vertex_source, GL_VERTEX_SHADER)
+        fragment_shader = createShader(fragment_source, GL_FRAGMENT_SHADER)
+    elseif typeof(mode) == RGBBasicMode
+        vertex_shader = createShader(vertexShader_rgb_basic, GL_VERTEX_SHADER)
+        fragment_shader = createShader(fragmentShader_rgb_basic, GL_FRAGMENT_SHADER)
+    elseif typeof(mode) == RGBMode
+        vertex_shader = createShader(vertexShader_rgb, GL_VERTEX_SHADER)
+        fragment_shader = createShader(fragmentShader_rgb, GL_FRAGMENT_SHADER)
+    elseif typeof(mode) == TextureMode
+        vertex_shader = createShader(vertexShader_texture, GL_VERTEX_SHADER)
+        fragment_shader = createShader(fragmentShader_texture, GL_FRAGMENT_SHADER)
+    else
+        error("unsupported mode $(mode)")
+    end
+
+    shader_program = glCreateProgram()
+    glAttachShader(shader_program, vertex_shader)
+    glAttachShader(shader_program, fragment_shader)
+    glLinkProgram(shader_program)
+
+    fbo = Ref(GLuint(0))
+    glGenFramebuffers(1, fbo)
+
+    depth_tex = Ref(GLuint(0))
+    glGenTextures(1, depth_tex)
+    color_tex = Ref(GLuint(0))
+    glGenTextures(1, color_tex)
+
+    glBindFramebuffer(GL_FRAMEBUFFER, fbo[])
+
+    glBindTexture(GL_TEXTURE_2D, depth_tex[])
+    glTexImage2D(
+      GL_TEXTURE_2D, 0, GL_DEPTH24_STENCIL8, camera_intrinsics.width, camera_intrinsics.height, 0, 
+      GL_DEPTH_STENCIL, GL_UNSIGNED_INT_24_8, C_NULL
+    );
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_TEXTURE_2D, depth_tex[], 0);  
+
+    glBindTexture(GL_TEXTURE_2D, color_tex[])
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, camera_intrinsics.width, camera_intrinsics.height, 0,
+                 GL_RGBA, GL_UNSIGNED_BYTE, C_NULL)
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, color_tex[], 0)
+    
+
+    glViewport(0, 0, camera_intrinsics.width, camera_intrinsics.height)
+    glDrawBuffers(2, [GL_DEPTH_STENCIL_ATTACHMENT, GL_COLOR_ATTACHMENT0])
+    println(glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE)
+
+    Renderer{typeof(mode)}(camera_intrinsics, shader_program, [], [], [], perspective_matrix)
 end
 
-function load_object!(renderer::Union{Renderer{DepthMode},Renderer{SegmentationMode}}, vertices, faces)
-    renderer.gl_instance.load_object(vertices, false, faces, false, false)
-end
-function load_object!(renderer::Union{Renderer{DepthMode},Renderer{SegmentationMode}}, vertices, normals, faces)
-    renderer.gl_instance.load_object(vertices, false, faces, false, false)
+function load_object!(renderer::Union{Renderer{DepthMode},Renderer{RGBBasicMode}}, mesh)
+    vao = Ref(GLuint(0))
+    glGenVertexArrays(1, vao)
+    glBindVertexArray(vao[])
+
+    # copy vertex data into an OpenGL buffer
+    vbo = Ref(GLuint(0))
+    glGenBuffers(1, vbo)
+    glBindBuffer(GL_ARRAY_BUFFER, vbo[])
+    glBufferData(GL_ARRAY_BUFFER, sizeof(mesh.vertices), Ref(mesh.vertices, 1), GL_STATIC_DRAW)
+
+    # element buffer object for indices
+    ebo = Ref(GLuint(0))
+    glGenBuffers(1, ebo)
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo[])
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(mesh.indices), Ref(mesh.indices, 1), GL_STATIC_DRAW)
+
+    # set vertex attribute pointers
+    glVertexAttribPointer(glGetAttribLocation(renderer.shader_program, "position"), 3, GL_FLOAT, GL_FALSE, 3 * sizeof(Float32), C_NULL)
+    glEnableVertexAttribArray(glGetAttribLocation(renderer.shader_program, "position"))
+
+    # unbind it
+    glBindBuffer(GL_ARRAY_BUFFER, 0)
+    glBindVertexArray(0)
+
+    push!(renderer.mesh_pointers, vao[])
+    push!(renderer.mesh_sizes, size(mesh.indices)[2] * 3)
+    return true
 end
 
-function load_object!(renderer::Union{Renderer{RGBMode},Renderer{RGBBasicMode}}, vertices, normals, faces)
-    renderer.gl_instance.load_object(vertices, normals, faces, false, false)
-end
-function load_object!(renderer::Renderer{TextureMode}, vertices, normals, faces, texture_coords, texture_path)
-    renderer.gl_instance.load_object(vertices, normals, faces, texture_coords, texture_path)
+
+function load_object!(renderer::Union{Renderer{RGBMode}}, mesh)
+    vao = Ref(GLuint(0))
+    glGenVertexArrays(1, vao)
+    glBindVertexArray(vao[])
+
+    vertex_data = vcat(mesh.vertices, mesh.normals)
+
+    # copy vertex data into an OpenGL buffer
+    vbo = Ref(GLuint(0))
+    glGenBuffers(1, vbo)
+    glBindBuffer(GL_ARRAY_BUFFER, vbo[])
+    glBufferData(GL_ARRAY_BUFFER, sizeof(vertex_data), Ref(vertex_data, 1), GL_STATIC_DRAW)
+
+    # element buffer object for indices
+    ebo = Ref(GLuint(0))
+    glGenBuffers(1, ebo)
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo[])
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(mesh.indices), Ref(mesh.indices, 1), GL_STATIC_DRAW)
+
+    # set vertex attribute pointers
+    glEnableVertexAttribArray(glGetAttribLocation(renderer.shader_program, "position"))
+    glEnableVertexAttribArray(glGetAttribLocation(renderer.shader_program, "normal"))
+
+    glVertexAttribPointer(
+        glGetAttribLocation(renderer.shader_program, "position"),
+        3, GL_FLOAT, GL_FALSE, 3 * sizeof(Float32) * 2, C_NULL)
+    glVertexAttribPointer(
+        glGetAttribLocation(renderer.shader_program, "normal"),
+        3, GL_FLOAT, GL_FALSE, 3 * sizeof(Float32) * 2, C_NULL + (3 * sizeof(Float32)))
+
+    # unbind it
+    glBindBuffer(GL_ARRAY_BUFFER, 0)
+    glBindVertexArray(0)
+
+    push!(renderer.mesh_pointers, vao[])
+    push!(renderer.mesh_sizes, size(mesh.indices)[2] * 3)
+    return true
 end
 
-function pose_to_model_matrix(pose::Pose)::Matrix{Float32}
-    R = Matrix{Float32}(pose.orientation)
-    mat = zeros(Float32,4,4)
-    mat[end,end] = 1
-    mat[1:3,1:3] = R
-    mat[1:3,4] = pose.pos
-    return mat
+
+
+function load_object!(renderer::Union{Renderer{TextureMode}}, mesh)
+    PyCall.py"""
+    from PIL import Image
+    import numpy as np
+    def load_texture_bytes(path):
+        img = Image.open(path).transpose(Image.FLIP_TOP_BOTTOM)
+        img_data = np.fromstring(img.tobytes(), np.uint8)
+        return img_data, img.width, img.height
+    """
+
+    vao = Ref(GLuint(0))
+    glGenVertexArrays(1, vao)
+    glBindVertexArray(vao[])
+
+
+    vertex_data = Matrix{Float32}(vcat(mesh.vertices, mesh.normals, mesh.tex_coords))
+    # copy vertex data into an OpenGL buffer
+    vbo = Ref(GLuint(0))
+    glGenBuffers(1, vbo)
+    glBindBuffer(GL_ARRAY_BUFFER, vbo[])
+    glBufferData(GL_ARRAY_BUFFER, sizeof(vertex_data), Ref(vertex_data, 1), GL_STATIC_DRAW)
+
+
+    # element buffer object for indices
+    ebo = Ref(GLuint(0))
+    glGenBuffers(1, ebo)
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo[])
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(mesh.indices), Ref(mesh.indices, 1), GL_STATIC_DRAW)
+
+    # set vertex attribute pointers
+    glEnableVertexAttribArray(glGetAttribLocation(renderer.shader_program, "position"))
+    glEnableVertexAttribArray(glGetAttribLocation(renderer.shader_program, "normal"))
+    glEnableVertexAttribArray(glGetAttribLocation(renderer.shader_program, "vertTexCoord"))
+
+    glVertexAttribPointer(
+        glGetAttribLocation(renderer.shader_program, "position"),
+        3, GL_FLOAT, GL_FALSE, 32, C_NULL)
+    glVertexAttribPointer(
+        glGetAttribLocation(renderer.shader_program, "normal"),
+        3, GL_FLOAT, GL_FALSE, 32, C_NULL + 12)
+    glVertexAttribPointer(
+        glGetAttribLocation(renderer.shader_program, "vertTexCoord"),
+        2, GL_FLOAT, GL_FALSE, 32, C_NULL + 24)
+
+
+    img_data, width, height = PyCall.py"load_texture_bytes"(mesh.tex_path);
+
+    texture = Ref(GLuint(0))
+    glGenTextures(1, texture)
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1)
+    glBindTexture(GL_TEXTURE_2D, texture[])
+    glTexParameterf(
+        GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
+    glTexParameterf(
+        GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR)
+    glTexParameterf(
+        GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE)
+    glTexParameterf(
+        GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE)
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, width, height, 0,
+                    GL_RGB, GL_UNSIGNED_BYTE, img_data)
+    glGenerateMipmap(GL_TEXTURE_2D)
+
+    # unbind it
+    glBindBuffer(GL_ARRAY_BUFFER, 0)
+    glBindVertexArray(0)
+
+    push!(renderer.mesh_pointers, vao[])
+    push!(renderer.mesh_sizes, size(mesh.indices)[2] * 3)
+    push!(renderer.textures, texture)
+
+    return true
 end
 
-function convert_pose_to_array(p)
-    q = Rotations.UnitQuaternion(p.orientation)
-    [p.pos..., q.q.s, q.q.v1, q.q.v2, q.q.v3]
-end
 
 function gl_render(
-        renderer::Renderer{DepthMode}, mesh_ids::Vector{Int},
+        renderer::Union{Renderer{DepthMode}}, mesh_ids::Vector{Int},
         poses::Vector{Pose}, camera_pose::Pose
 )
-    renderer.gl_instance.V = pose_to_model_matrix(
-        inv(Pose([camera_pose.pos...], camera_pose.orientation)))
 
-    new_poses = convert_pose_to_array.(poses)
+    glClearColor(1.0, 1.0, 1.0, 1)
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
+    glEnable(GL_DEPTH_TEST)
+    camera_pose_mat = pose_to_matrix(camera_pose * Pose(Rotations.RotX(pi)))
+    for (id, p) in zip(mesh_ids, poses)
+        vao = renderer.mesh_pointers[id]
+        glUseProgram(renderer.shader_program)
+        glUniformMatrix4fv(glGetUniformLocation(
+                renderer.shader_program,"P"), 1, GL_FALSE, Ref(renderer.perspective_matrix, 1))
+        glUniformMatrix4fv(glGetUniformLocation(
+                renderer.shader_program,"V"), 1, GL_FALSE, Ref(camera_pose_mat, 1))
 
-    depth_buffer = renderer.gl_instance.render([i-1 for i in mesh_ids], new_poses);
-    near,far = renderer.camera_intrinsics.near, renderer.camera_intrinsics.far
-    depth = far .* near ./ (far .- (far - near) .* depth_buffer)
-    depth
+        glUniformMatrix4fv(glGetUniformLocation(
+                renderer.shader_program,"pose_mat"), 1, GL_FALSE, Ref(pose_to_matrix(p), 1))
+        glBindVertexArray(vao)
+        glDrawElements(GL_TRIANGLES, renderer.mesh_sizes[id], GL_UNSIGNED_INT, C_NULL)
+        glBindVertexArray(0)
+    end
+    cam = renderer.camera_intrinsics
+    data = Matrix{Float32}(undef, cam.width, cam.height)
+    glReadPixels(0, 0, cam.width, cam.height, GL_DEPTH_COMPONENT, GL_FLOAT, Ref(data, 1))
+    near,far = cam.near, cam.far
+    depth_image = far .* near ./ (far .- (far .- near) .* data)
+    depth_image = permutedims(depth_image[:,end:-1:1])
 end
 
+
 function gl_render(
-        renderer::Renderer{SegmentationMode}, mesh_ids::Vector{Int},
+        renderer::Union{Renderer{RGBBasicMode}}, mesh_ids::Vector{Int},
+        poses::Vector{Pose}, colors, camera_pose::Pose
+)
+    if(glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+        println("not working")
+        println(glCheckFramebufferStatus(GL_FRAMEBUFFER))
+    end
+
+    glClearColor(1.0, 1.0, 1.0, 1)
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
+    glEnable(GL_DEPTH_TEST)
+    camera_pose_mat = pose_to_matrix(camera_pose * Pose(Rotations.RotX(pi)))
+    for (id, p, c) in zip(mesh_ids, poses, colors)
+        vao = renderer.mesh_pointers[id]
+        glUseProgram(renderer.shader_program)
+        glUniformMatrix4fv(glGetUniformLocation(
+                renderer.shader_program,"P"), 1, GL_FALSE, Ref(renderer.perspective_matrix, 1))
+        glUniformMatrix4fv(glGetUniformLocation(
+                renderer.shader_program,"V"), 1, GL_FALSE, Ref(camera_pose_mat, 1))
+
+        glUniformMatrix4fv(glGetUniformLocation(
+                renderer.shader_program,"pose_mat"), 1, GL_FALSE, Ref(pose_to_matrix(p), 1))
+        glUniform4fv(glGetUniformLocation(
+                renderer.shader_program,"color"), 1, Float32[c.r, c.g, c.b, c.alpha])
+        glBindVertexArray(vao)
+        glDrawElements(GL_TRIANGLES, renderer.mesh_sizes[id], GL_UNSIGNED_INT, C_NULL)
+        glBindVertexArray(0)
+    end
+    glBindVertexArray(0)
+    glUseProgram(0)
+    glDisable(GL_DEPTH_TEST)
+
+    cam = renderer.camera_intrinsics
+    data = Matrix{Float32}(undef, cam.width, cam.height)
+    glReadPixels(0, 0, cam.width, cam.height, GL_DEPTH_COMPONENT, GL_FLOAT, Ref(data, 1))
+    near,far = cam.near, cam.far
+    depth_image = far .* near ./ (far .- (far .- near) .* data)
+
+    depth_image = permutedims(depth_image[:,end:-1:1])
+
+
+    glReadBuffer(GL_COLOR_ATTACHMENT0)        
+    data1 = zeros(Float32, 4,cam.width, cam.height)
+    glReadPixels(0, 0, cam.width, cam.height, GL_BGRA, GL_FLOAT, Ref(data1, 1))
+    rgb = permutedims(data1,(3,2,1))[end:-1:1,:,:]
+    rgb = cat(rgb[:,:,3],rgb[:,:,2],rgb[:,:,1],rgb[:,:,4],dims=3)
+    rgb, depth_image
+end
+
+
+
+function gl_render(
+        renderer::Union{Renderer{RGBMode}}, mesh_ids::Vector{Int},
+        poses::Vector{Pose}, colors, camera_pose::Pose
+)
+    if(glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+        println("not working")
+        println(glCheckFramebufferStatus(GL_FRAMEBUFFER))
+    end
+
+    glClearColor(1.0, 1.0, 1.0, 1)
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
+    glEnable(GL_DEPTH_TEST)
+    camera_pose_mat = pose_to_matrix(camera_pose * Pose(Rotations.RotX(pi)))
+    for (id, p, c) in zip(mesh_ids, poses, colors)
+        vao = renderer.mesh_pointers[id]
+        glUseProgram(renderer.shader_program)
+        glUniformMatrix4fv(glGetUniformLocation(
+                renderer.shader_program,"P"), 1, GL_FALSE, Ref(renderer.perspective_matrix, 1))
+        glUniformMatrix4fv(glGetUniformLocation(
+                renderer.shader_program,"V"), 1, GL_FALSE, Ref(camera_pose_mat, 1))
+
+        glUniformMatrix4fv(glGetUniformLocation(
+                renderer.shader_program,"pose_mat"), 1, GL_FALSE, Ref(pose_to_matrix(p), 1))
+        glUniformMatrix4fv(glGetUniformLocation(
+                renderer.shader_program,"pose_rot"), 1, GL_FALSE, Ref(pose_to_matrix(Pose(p.orientation)), 1))
+        glUniform4fv(glGetUniformLocation(
+                renderer.shader_program,"color"), 1, Float32[c.r, c.g, c.b, c.alpha])
+        glBindVertexArray(vao)
+        glDrawElements(GL_TRIANGLES, renderer.mesh_sizes[id], GL_UNSIGNED_INT, C_NULL)
+        glBindVertexArray(0)
+    end
+    glBindVertexArray(0)
+    glUseProgram(0)
+    glDisable(GL_DEPTH_TEST)
+
+    cam = renderer.camera_intrinsics
+    data = Matrix{Float32}(undef, cam.width, cam.height)
+    glReadPixels(0, 0, cam.width, cam.height, GL_DEPTH_COMPONENT, GL_FLOAT, Ref(data, 1))
+    near,far = cam.near, cam.far
+    depth_image = far .* near ./ (far .- (far .- near) .* data)
+
+    depth_image = permutedims(depth_image[:,end:-1:1])
+
+
+    glReadBuffer(GL_COLOR_ATTACHMENT0)        
+    data1 = zeros(Float32, 4,cam.width, cam.height)
+    glReadPixels(0, 0, cam.width, cam.height, GL_BGRA, GL_FLOAT, Ref(data1, 1))
+    rgb = permutedims(data1,(3,2,1))[end:-1:1,:,:]
+    rgb = cat(rgb[:,:,3],rgb[:,:,2],rgb[:,:,1],rgb[:,:,4],dims=3)
+    rgb, depth_image
+end
+
+
+
+
+function gl_render(
+        renderer::Union{Renderer{TextureMode}}, mesh_ids::Vector{Int},
         poses::Vector{Pose}, camera_pose::Pose
 )
-    renderer.gl_instance.V = pose_to_model_matrix(
-        inv(Pose([camera_pose.pos...], camera_pose.orientation)))
+    if(glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+        println("not working")
+        println(glCheckFramebufferStatus(GL_FRAMEBUFFER))
+    end
 
-    new_poses = convert_pose_to_array.(poses)
+    glClearColor(1.0, 1.0, 1.0, 1)
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
+    glEnable(GL_DEPTH_TEST)
+    camera_pose_mat = pose_to_matrix(camera_pose * Pose(Rotations.RotX(pi)))
+    for (id, p) in zip(mesh_ids, poses)
+        vao = renderer.mesh_pointers[id]
+        glUseProgram(renderer.shader_program)
+        glUniformMatrix4fv(glGetUniformLocation(
+                renderer.shader_program,"P"), 1, GL_FALSE, Ref(renderer.perspective_matrix, 1))
+        glUniformMatrix4fv(glGetUniformLocation(
+                renderer.shader_program,"V"), 1, GL_FALSE, Ref(camera_pose_mat, 1))
 
-    depth_buffer, seg_buffer = renderer.gl_instance.render([i-1 for i in mesh_ids], new_poses);
-    near,far = renderer.camera_intrinsics.near, renderer.camera_intrinsics.far
-    depth = far .* near ./ (far .- (far - near) .* depth_buffer)
-    depth, seg_buffer
-end
+        glUniformMatrix4fv(glGetUniformLocation(
+                renderer.shader_program,"pose_mat"), 1, GL_FALSE, Ref(pose_to_matrix(p), 1))
+        glUniformMatrix4fv(glGetUniformLocation(
+                renderer.shader_program,"pose_rot"), 1, GL_FALSE, Ref(pose_to_matrix(Pose(p.orientation)), 1))        
+
+        glActiveTexture(GL_TEXTURE0)
+        glBindTexture(GL_TEXTURE_2D, renderer.textures[id][])
+        glUniform1i(glGetUniformLocation(
+                renderer.shader_program,"tex"), 0)
+
+        glBindVertexArray(vao)
+        glDrawElements(GL_TRIANGLES, renderer.mesh_sizes[id], GL_UNSIGNED_INT, C_NULL)
+        glBindVertexArray(0)
+    end
+    glBindVertexArray(0)
+    glUseProgram(0)
+    glDisable(GL_DEPTH_TEST)
+
+    cam = renderer.camera_intrinsics
+    data = Matrix{Float32}(undef, cam.width, cam.height)
+    glReadPixels(0, 0, cam.width, cam.height, GL_DEPTH_COMPONENT, GL_FLOAT, Ref(data, 1))
+    near,far = cam.near, cam.far
+    depth_image = far .* near ./ (far .- (far .- near) .* data)
+
+    depth_image = permutedims(depth_image[:,end:-1:1])
 
 
-
-function gl_render(
-    renderer::Union{Renderer{RGBMode},Renderer{RGBBasicMode}}, mesh_ids::Vector{Int},
-    poses::Vector{Pose}, colors, camera_pose::Pose
-)
-    renderer.gl_instance.V = pose_to_model_matrix(
-        inv(Pose([camera_pose.pos...], camera_pose.orientation)))
-
-    new_poses = convert_pose_to_array.(poses)
-
-    rgb, depth_buffer = renderer.gl_instance.render([i-1 for i in mesh_ids],
-        new_poses,
-        [[c.r, c.g, c.b, c.alpha] for c in map(RGBA,colors)]
-    );
+    glReadBuffer(GL_COLOR_ATTACHMENT0)        
+    data1 = zeros(Float32, 4,cam.width, cam.height)
+    glReadPixels(0, 0, cam.width, cam.height, GL_BGRA, GL_FLOAT, Ref(data1, 1))
+    rgb = permutedims(data1,(3,2,1))[end:-1:1,:,:]
     rgb = cat(rgb[:,:,3],rgb[:,:,2],rgb[:,:,1],rgb[:,:,4],dims=3)
-    rgb = clamp.(rgb, 0.0, 1.0)
-    
-    near,far = renderer.camera_intrinsics.near, renderer.camera_intrinsics.far
-    depth = far .* near ./ (far .- (far - near) .* depth_buffer)
-    
-    rgb,depth
+    rgb, depth_image
 end
 
-function gl_render(
-    renderer::Renderer{TextureMode}, mesh_ids::Vector{Int},
-    poses::Vector{Pose}, camera_pose::Pose
-)
-    renderer.gl_instance.V = pose_to_model_matrix(
-        inv(Pose([camera_pose.pos...], camera_pose.orientation)))
 
-    new_poses = convert_pose_to_array.(poses)
 
-    rgb, depth_buffer = renderer.gl_instance.render([i-1 for i in mesh_ids],
-        new_poses,
-    );
-    rgb = cat(rgb[:,:,3],rgb[:,:,2],rgb[:,:,1],rgb[:,:,4],dims=3)
-    rgb = clamp.(rgb, 0.0, 1.0)
-    rgb, depth_buffer
 
-    near,far = renderer.camera_intrinsics.near, renderer.camera_intrinsics.far
-    depth = far .* near ./ (far .- (far - near) .* depth_buffer)
-    
-    rgb,depth
-end
 
-export setup_renderer, load_object!, gl_render
 
 
 # Viewing images
