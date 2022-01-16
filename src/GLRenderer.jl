@@ -7,6 +7,9 @@ import Images: Color, RGBA
 import Parameters: @with_kw
 import GLFW
 import PyCall
+import FileIO
+import MeshIO
+import GeometryBasics as GB
 using ModernGL
 
 include("shaders.jl")
@@ -26,6 +29,16 @@ end
 include("mesh.jl")
 include("point_cloud.jl")
 
+function __init__()
+    PyCall.py"""
+    from PIL import Image
+    import numpy as np
+    def load_texture_bytes(path):
+        img = Image.open(path).transpose(Image.FLIP_TOP_BOTTOM)
+        img_data = np.fromstring(img.tobytes(), np.uint8)
+        return img_data, img.width, img.height
+    """
+end
 
 abstract type RenderMode end
 struct DepthMode <: RenderMode end
@@ -42,7 +55,7 @@ mutable struct Renderer{T <: RenderMode}
     perspective_matrix::Matrix
 end
 
-function setup_renderer(camera_intrinsics::CameraIntrinsics, mode::RenderMode)::Renderer
+function setup_renderer(camera_intrinsics::CameraIntrinsics, mode::RenderMode; gl_version=(4,1))::Renderer
     perspective_matrix = get_perspective_matrix(
         camera_intrinsics.width, camera_intrinsics.height,
         camera_intrinsics.fx,
@@ -62,8 +75,8 @@ function setup_renderer(camera_intrinsics::CameraIntrinsics, mode::RenderMode)::
         # (GLFW.BLUE_BITS,    8),
         # (GLFW.STENCIL_BITS, 0),
         # (GLFW.AUX_BUFFERS,  0),
-        (GLFW.CONTEXT_VERSION_MAJOR, 4),
-        (GLFW.CONTEXT_VERSION_MINOR, 1),
+        (GLFW.CONTEXT_VERSION_MAJOR, gl_version[1]),
+        (GLFW.CONTEXT_VERSION_MINOR, gl_version[2]),
         (GLFW.OPENGL_PROFILE, GLFW.OPENGL_CORE_PROFILE),
         (GLFW.OPENGL_FORWARD_COMPAT, GL_TRUE),
         (GLFW.VISIBLE, GL_FALSE)
@@ -71,23 +84,26 @@ function setup_renderer(camera_intrinsics::CameraIntrinsics, mode::RenderMode)::
     for (key, value) in window_hint
         GLFW.WindowHint(key, value)
     end
+
     window = GLFW.CreateWindow(camera_intrinsics.width, camera_intrinsics.height, "GLRenderer")
     GLFW.MakeContextCurrent(window)
     glEnable(GL_DEPTH_TEST)
     glClear(GL_DEPTH_BUFFER_BIT)
 
+    gl_version_for_shaders = "$(gl_version[1])$(gl_version[2])0"
+    @show gl_version_for_shaders
     if typeof(mode) == DepthMode
-        vertex_shader = createShader(vertex_source, GL_VERTEX_SHADER)
-        fragment_shader = createShader(fragment_source, GL_FRAGMENT_SHADER)
+        vertex_shader = createShader(vertex_source_depth(gl_version_for_shaders), GL_VERTEX_SHADER)
+        fragment_shader = createShader(fragment_source_depth(gl_version_for_shaders), GL_FRAGMENT_SHADER)
     elseif typeof(mode) == RGBBasicMode
-        vertex_shader = createShader(vertexShader_rgb_basic, GL_VERTEX_SHADER)
-        fragment_shader = createShader(fragmentShader_rgb_basic, GL_FRAGMENT_SHADER)
+        vertex_shader = createShader(vertexShader_rgb_basic(gl_version_for_shaders), GL_VERTEX_SHADER)
+        fragment_shader = createShader(fragmentShader_rgb_basic(gl_version_for_shaders), GL_FRAGMENT_SHADER)
     elseif typeof(mode) == RGBMode
-        vertex_shader = createShader(vertexShader_rgb, GL_VERTEX_SHADER)
-        fragment_shader = createShader(fragmentShader_rgb, GL_FRAGMENT_SHADER)
+        vertex_shader = createShader(vertexShader_rgb(gl_version_for_shaders), GL_VERTEX_SHADER)
+        fragment_shader = createShader(fragmentShader_rgb(gl_version_for_shaders), GL_FRAGMENT_SHADER)
     elseif typeof(mode) == TextureMode
-        vertex_shader = createShader(vertexShader_texture, GL_VERTEX_SHADER)
-        fragment_shader = createShader(fragmentShader_texture, GL_FRAGMENT_SHADER)
+        vertex_shader = createShader(vertexShader_texture(gl_version_for_shaders), GL_VERTEX_SHADER)
+        fragment_shader = createShader(fragmentShader_texture(gl_version_for_shaders), GL_FRAGMENT_SHADER)
     else
         error("unsupported mode $(mode)")
     end
@@ -126,6 +142,23 @@ function setup_renderer(camera_intrinsics::CameraIntrinsics, mode::RenderMode)::
 
     Renderer{typeof(mode)}(camera_intrinsics, shader_program, [], [], [], perspective_matrix)
 end
+
+function get_mesh_data_from_obj_file(obj_file_path)
+    mesh = FileIO.load(obj_file_path);    
+    
+    vertices = hcat([[x...] for x in mesh.position]...)
+    indices = hcat([[map(GB.value,a)...] for a in GB.faces(mesh)]...) .- 1
+    normals = hcat([[x...] for x in mesh.normals]...)
+    tex_coords = hcat([[x...] for x in mesh.uv]...)
+    
+    vertices = Matrix{Float32}(vertices)
+    indices = Matrix{UInt32}(indices)
+    normals = Matrix{Float32}(normals)
+    tex_coords = Matrix{Float32}(tex_coords)
+
+    (vertices=vertices, indices=indices, normals=normals, tex_coords=tex_coords )
+end
+
 
 function load_object!(renderer::Union{Renderer{DepthMode},Renderer{RGBBasicMode}}, mesh)
     vao = Ref(GLuint(0))
@@ -199,16 +232,7 @@ end
 
 
 
-function load_object!(renderer::Union{Renderer{TextureMode}}, mesh)
-    PyCall.py"""
-    from PIL import Image
-    import numpy as np
-    def load_texture_bytes(path):
-        img = Image.open(path).transpose(Image.FLIP_TOP_BOTTOM)
-        img_data = np.fromstring(img.tobytes(), np.uint8)
-        return img_data, img.width, img.height
-    """
-
+function load_object!(renderer::Union{Renderer{TextureMode}}, mesh, tex_path)
     vao = Ref(GLuint(0))
     glGenVertexArrays(1, vao)
     glBindVertexArray(vao[])
@@ -244,7 +268,7 @@ function load_object!(renderer::Union{Renderer{TextureMode}}, mesh)
         2, GL_FLOAT, GL_FALSE, 32, C_NULL + 24)
 
 
-    img_data, width, height = PyCall.py"load_texture_bytes"(mesh.tex_path);
+    img_data, width, height = PyCall.py"load_texture_bytes"(tex_path);
 
     texture = Ref(GLuint(0))
     glGenTextures(1, texture)
@@ -282,7 +306,7 @@ function gl_render(
     glClearColor(1.0, 1.0, 1.0, 1)
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
     glEnable(GL_DEPTH_TEST)
-    camera_pose_mat = pose_to_matrix(camera_pose * Pose(Rotations.RotX(pi)))
+    camera_pose_mat = pose_to_matrix(camera_pose * Pose(zeros(3),Rotations.RotX(pi)))
     for (id, p) in zip(mesh_ids, poses)
         vao = renderer.mesh_pointers[id]
         glUseProgram(renderer.shader_program)
@@ -315,10 +339,12 @@ function gl_render(
         println(glCheckFramebufferStatus(GL_FRAMEBUFFER))
     end
 
+    colors = map(x -> convert(I.RGBA,x), colors)
+
     glClearColor(1.0, 1.0, 1.0, 1)
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
     glEnable(GL_DEPTH_TEST)
-    camera_pose_mat = pose_to_matrix(camera_pose * Pose(Rotations.RotX(pi)))
+    camera_pose_mat = pose_to_matrix(camera_pose * Pose(zeros(3),Rotations.RotX(pi)))
     for (id, p, c) in zip(mesh_ids, poses, colors)
         vao = renderer.mesh_pointers[id]
         glUseProgram(renderer.shader_program)
@@ -367,10 +393,12 @@ function gl_render(
         println(glCheckFramebufferStatus(GL_FRAMEBUFFER))
     end
 
+    colors = map(x -> convert(I.RGBA,x), colors)
+
     glClearColor(1.0, 1.0, 1.0, 1)
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
     glEnable(GL_DEPTH_TEST)
-    camera_pose_mat = pose_to_matrix(camera_pose * Pose(Rotations.RotX(pi)))
+    camera_pose_mat = pose_to_matrix(camera_pose * Pose(zeros(3),Rotations.RotX(pi)))
     for (id, p, c) in zip(mesh_ids, poses, colors)
         vao = renderer.mesh_pointers[id]
         glUseProgram(renderer.shader_program)
@@ -382,7 +410,7 @@ function gl_render(
         glUniformMatrix4fv(glGetUniformLocation(
                 renderer.shader_program,"pose_mat"), 1, GL_FALSE, Ref(pose_to_matrix(p), 1))
         glUniformMatrix4fv(glGetUniformLocation(
-                renderer.shader_program,"pose_rot"), 1, GL_FALSE, Ref(pose_to_matrix(Pose(p.orientation)), 1))
+                renderer.shader_program,"pose_rot"), 1, GL_FALSE, Ref(pose_to_matrix(Pose(zeros(3),p.orientation)), 1))
         glUniform4fv(glGetUniformLocation(
                 renderer.shader_program,"color"), 1, Float32[c.r, c.g, c.b, c.alpha])
         glBindVertexArray(vao)
@@ -425,7 +453,7 @@ function gl_render(
     glClearColor(1.0, 1.0, 1.0, 1)
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
     glEnable(GL_DEPTH_TEST)
-    camera_pose_mat = pose_to_matrix(camera_pose * Pose(Rotations.RotX(pi)))
+    camera_pose_mat = pose_to_matrix(camera_pose * Pose(zeros(3),Rotations.RotX(pi)))
     for (id, p) in zip(mesh_ids, poses)
         vao = renderer.mesh_pointers[id]
         glUseProgram(renderer.shader_program)
@@ -437,7 +465,7 @@ function gl_render(
         glUniformMatrix4fv(glGetUniformLocation(
                 renderer.shader_program,"pose_mat"), 1, GL_FALSE, Ref(pose_to_matrix(p), 1))
         glUniformMatrix4fv(glGetUniformLocation(
-                renderer.shader_program,"pose_rot"), 1, GL_FALSE, Ref(pose_to_matrix(Pose(p.orientation)), 1))        
+                renderer.shader_program,"pose_rot"), 1, GL_FALSE, Ref(pose_to_matrix(Pose(zeros(3),p.orientation)), 1))        
 
         glActiveTexture(GL_TEXTURE0)
         glBindTexture(GL_TEXTURE_2D, renderer.textures[id][])
@@ -468,10 +496,6 @@ function gl_render(
     rgb = cat(rgb[:,:,3],rgb[:,:,2],rgb[:,:,1],rgb[:,:,4],dims=3)
     rgb, depth_image
 end
-
-
-
-
 
 
 

@@ -3,6 +3,9 @@ import GLRenderer
 import PoseComposition
 import Rotations
 
+obj_path = joinpath(@__DIR__, "035_power_drill/textured_simple.obj")
+texture_path = joinpath(@__DIR__, "035_power_drill/texture_map.png")
+
 R = Rotations
 P = PoseComposition
 GL = GLRenderer
@@ -26,3 +29,4 @@ I = Images
 
 img = I.colorview(I.Gray, depth_image ./ maximum(depth_image))
 I.save(joinpath(@__DIR__, "imgs/depth_rendering_depth_image.png"), img)
+img

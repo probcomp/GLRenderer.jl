@@ -68,8 +68,8 @@ end
 ##################
 
 # vertex shader for computing depth image
-const vertex_source = """
-#version 410 core
+vertex_source_depth(s) = """
+#version $(s) core
 uniform mat4 P;
 uniform mat4 V;
 uniform mat4 pose_mat;
@@ -80,8 +80,8 @@ void main() {
 """
 
 # fragment shader for sillhouette
-const fragment_source = """
-#version 410 core
+fragment_source_depth(s) = """
+#version $(s) core
 out vec4 outColor;
 void main()
 {
@@ -89,8 +89,8 @@ void main()
 }
 """
 
-const vertexShader_rgb_basic = """
-#version 410 core
+vertexShader_rgb_basic(s) = """
+#version $(s) core
 uniform mat4 P;
 uniform mat4 V;
 uniform mat4 pose_mat;
@@ -103,8 +103,8 @@ void main() {
 }
 """
 
-const fragmentShader_rgb_basic = """
-#version 410 core
+fragmentShader_rgb_basic(s) = """
+#version $(s) core
 in vec4 instance_color;
 layout(location = 0) out vec4 color;
 void main() {
@@ -114,8 +114,8 @@ void main() {
 
 
 
-const vertexShader_rgb = """
-#version 410 core
+vertexShader_rgb(s) = """
+#version $(s) core
 uniform mat4 P;
 uniform mat4 V;
 uniform mat4 pose_mat;
@@ -143,8 +143,8 @@ void main() {
 }
 """
 
-const fragmentShader_rgb = """
-#version 410 core
+fragmentShader_rgb(s) = """
+#version $(s) core
 in vec4 instance_color;
 in vec3 normal_out;
 in mat4 V_out;
@@ -177,8 +177,8 @@ void main() {
 """
 
 
-const vertexShader_texture = """
-#version 410 core
+vertexShader_texture(s) = """
+#version $(s) core
 uniform mat4 P;
 uniform mat4 V;
 uniform mat4 pose_mat;
@@ -206,8 +206,8 @@ void main() {
 }
 """
 
-const fragmentShader_texture = """
-#version 410 core
+fragmentShader_texture(s) = """
+#version $(s) core
 
 uniform sampler2D tex;
 in vec3 normal_out;

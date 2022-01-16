@@ -18,12 +18,8 @@ camera_intrinsics = GL.CameraIntrinsics(
 
 renderer = GL.setup_renderer(camera_intrinsics, GL.TextureMode())
 
-v,n,f,t = renderer.gl_instance.load_obj_parameters(
-    obj_path
-) 
-GL.load_object!(renderer, v, n, f, t,
-    texture_path
-)
+mesh_data = GL.get_mesh_data_from_obj_file(obj_path) 
+GL.load_object!(renderer, mesh_data, texture_path)
 
 rgb_image, depth_image = GL.gl_render(
     renderer, [1], [P.Pose([0.0, 0.0, 1.0], R.RotXYZ(0.1, 0.4, 0.9))], 
