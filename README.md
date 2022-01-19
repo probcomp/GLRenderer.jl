@@ -7,6 +7,7 @@ High FPS rendering. Supports Depth, RGB, and RGB+Texture rendering.
 Please use the following commands to setup GLRenderer itself.
 ```
 cd GLRenderer.jl
+pip install --upgrade pip setuptools
 pip install -r requirements.txt
 ```
 
