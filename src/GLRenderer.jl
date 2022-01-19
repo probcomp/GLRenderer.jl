@@ -12,8 +12,7 @@ import MeshIO
 import GeometryBasics as GB
 using ModernGL
 
-include("shaders.jl")
-include("utils.jl")
+
 
 @with_kw struct CameraIntrinsics
     width::Int = 640
@@ -26,6 +25,8 @@ include("utils.jl")
     far::Float64 = 100.0
 end
 
+include("shaders.jl")
+include("utils.jl")
 include("mesh.jl")
 include("point_cloud.jl")
 

@@ -55,3 +55,11 @@ function get_perspective_matrix(width, height, fx, fy, cx, cy, near, far)
     ndc_matrix = compute_ortho_matrix(0, width, 0, height, near, far)
     ndc_matrix * proj_matrix
 end
+
+function scale_down_camera(camera, factor)
+    camera_modified = CameraIntrinsics(
+        width=round(Int,camera.width/factor), height=round(Int,camera.height/factor),
+        fx=camera.fx/factor, fy=camera.fy/factor, cx=camera.cx/factor, cy=camera.cy/factor,
+        near=camera.near, far=camera.far)
+    camera_modified
+end
