@@ -27,7 +27,11 @@ GL.load_object!(renderer, mesh_data)
 depth_image = GL.gl_render(renderer, [1], [P.Pose([0.0, 0.0, 1.0], R.RotXYZ(0.1, 0.4, 0.9))], P.IDENTITY_POSE)
 
 times = [
-    @elapsed GL.gl_render(renderer, [1], [P.Pose([0.0, 0.0, 1.0], R.RotXYZ(0.1, 0.4, 0.9))], P.IDENTITY_POSE)
+    let
+        r = rand() * 2*π
+        t = @elapsed GL.gl_render(renderer, [1], [P.Pose([0.0, 0.0, 1.0], R.RotXYZ(0.1, 0.4, r))], P.IDENTITY_POSE)
+        t
+    end
     for _ in 1:1000
 ]
 avg_time = sum(times)/length(times)

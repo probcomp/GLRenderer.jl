@@ -23,8 +23,8 @@ GL.load_object!(renderer, mesh_data)
 
 rgb_image, depth_image = GL.gl_render(
     renderer, [1], [P.Pose([0.0, 0.0, 1.0], R.RotXYZ(0.1, 0.4, 0.9))], 
-    [I.colorant"red"],
-    P.IDENTITY_POSE
+    P.IDENTITY_POSE;
+    colors=[I.colorant"red"],
 )
 
 

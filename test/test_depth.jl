@@ -7,6 +7,9 @@ R = Rotations
 P = PoseComposition
 GL = GLRenderer
 
+obj_path = joinpath(@__DIR__, "035_power_drill/textured_simple.obj")
+texture_path = joinpath(@__DIR__, "035_power_drill/texture_map.png")
+
 camera_intrinsics = GL.CameraIntrinsics(
     640, 480,
     1000.0, 1000.0,
@@ -26,3 +29,7 @@ I = Images
 
 img = I.colorview(I.Gray, depth_image ./ maximum(depth_image))
 I.save(joinpath(@__DIR__, "imgs/depth_rendering_depth_image.png"), img)
+
+img
+
+
