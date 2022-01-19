@@ -33,4 +33,4 @@ times = [
 avg_time = sum(times)/length(times)
 @show avg_time
 
-FileIO.save(GL.view_depth_image(depth_image), "imgs/speed_test_img.png")
+FileIO.save("imgs/speed_test_img.png", GL.view_depth_image(depth_image))
