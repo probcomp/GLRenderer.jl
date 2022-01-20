@@ -279,7 +279,8 @@ function gl_render(
     glClearColor(1.0, 1.0, 1.0, 1)
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
     glEnable(GL_DEPTH_TEST)
-    camera_pose_mat = pose_to_matrix(camera_pose * Pose(zeros(3),Rotations.RotX(pi)))
+    
+    camera_pose_mat = pose_to_matrix(inv(camera_pose * Pose(zeros(3),Rotations.RotX(pi))))
 
     for (id, p, c) in zip(mesh_ids, poses, colors)
         vao = renderer.mesh_pointers[id]
