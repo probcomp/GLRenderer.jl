@@ -44,11 +44,16 @@ function mesh_from_voxelized_cloud(cloud, resolution)
     new_v = vcat([cube_vertices .* resolution/2.0 .+ r' for r in eachcol(cloud)]...)
     new_n = vcat([cube_normals for _ in 1:size(cloud)[2]]...)
     new_f = vcat([cube_faces .+ 24*(i-1) for i in 1:size(cloud)[2]]...)
-    (vertices=permutedims(new_v), indices=permutedims(new_f), normals=permutedims(new_n))
+    Mesh(vertices=permutedims(new_v),
+         indices=permutedims(new_f), normals=permutedims(new_n))
 end
 
 function box_mesh_from_dims(dims)
-    (cube_vertices .* (dims ./ 2.0)'), cube_normals, cube_faces
+    Mesh(
+        vertices=permutedims(cube_vertices .* (dims ./ 2.0)'),
+        indices=permutedims(cube_faces),
+        normals=permutedims(cube_normals)
+    )
 end
 
 export voxelize, mesh_from_voxelized_cloud

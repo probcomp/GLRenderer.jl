@@ -25,6 +25,22 @@ using ModernGL
     far::Float64 = 100.0
 end
 
+@with_kw mutable struct Mesh
+    vertices::Any = nothing
+    indices::Any = nothing
+    normals::Any = nothing
+    tex_coords::Any = nothing
+    tex_path::Any = nothing
+end
+
+copy_mesh(m::Mesh) = Mesh(
+                        vertices=m.vertices,
+                        indices=m.indices,
+                        normals=m.normals,
+                        tex_coords=m.tex_coords,
+                        tex_path=m.tex_path,
+                    )
+
 include("shaders.jl")
 include("utils.jl")
 include("mesh.jl")
@@ -38,6 +54,7 @@ struct RGBMode <: RenderMode end
 struct TextureMode <: RenderMode end
 
 mutable struct Renderer{T <: RenderMode}
+    window::Any
     camera_intrinsics::CameraIntrinsics
     shader_program::Any
     mesh_pointers::Any
@@ -46,7 +63,7 @@ mutable struct Renderer{T <: RenderMode}
     perspective_matrix::Matrix
 end
 
-function setup_renderer(camera_intrinsics::CameraIntrinsics, mode::RenderMode; gl_version=(4,1))::Renderer
+function setup_renderer(camera_intrinsics::CameraIntrinsics, mode::RenderMode; gl_version=(4,1), name="GLRenderer")::Renderer
     perspective_matrix = get_perspective_matrix(
         camera_intrinsics.width, camera_intrinsics.height,
         camera_intrinsics.fx,
@@ -131,7 +148,11 @@ function setup_renderer(camera_intrinsics::CameraIntrinsics, mode::RenderMode; g
     glDrawBuffers(2, [GL_DEPTH_STENCIL_ATTACHMENT, GL_COLOR_ATTACHMENT0])
     println(glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE)
 
-    Renderer{typeof(mode)}(camera_intrinsics, shader_program, [], [], [], perspective_matrix)
+    Renderer{typeof(mode)}(window, camera_intrinsics, shader_program, [], [], [], perspective_matrix)
+end
+
+function activate_renderer(renderer::Renderer)
+    GLFW.MakeContextCurrent(renderer.window)
 end
 
 function get_mesh_data_from_obj_file(obj_file_path; tex_path=nothing)
@@ -147,7 +168,8 @@ function get_mesh_data_from_obj_file(obj_file_path; tex_path=nothing)
     normals = Matrix{Float32}(normals)
     tex_coords = Matrix{Float32}(tex_coords)
 
-    (vertices=vertices, indices=indices, normals=normals, tex_coords=tex_coords, tex_path=tex_path)
+    Mesh(vertices=vertices, indices=indices, normals=normals,
+         tex_coords=tex_coords, tex_path=tex_path)
 end
 
 

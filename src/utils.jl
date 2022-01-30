@@ -63,3 +63,4 @@ function scale_down_camera(camera, factor)
         near=camera.near, far=camera.far)
     camera_modified
 end
+
