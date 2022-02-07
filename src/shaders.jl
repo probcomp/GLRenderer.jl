@@ -240,3 +240,85 @@ void main() {
     color = vec4(brightness * vec3(1.0, 1.0, 1.0) * surfaceColor.rgb, surfaceColor.a);
 }
 """
+
+
+vertexShader_texture_mixed(s) = """
+#version $(s) core
+uniform mat4 P;
+uniform mat4 V;
+uniform mat4 pose_mat;
+uniform mat4 pose_rot;
+uniform float textured;
+uniform vec4 color; 
+
+in vec3 position;
+in vec3 normal;
+in vec2 vertTexCoord;
+
+out vec3 normal_out;
+out mat4 V_out;
+out mat4 pose_mat_out;
+out mat4 pose_rot_out;
+out vec3 fragVert;
+out vec2 fragTexCoord;
+out float in_textured;
+out vec4 in_color;
+
+void main() {
+    gl_Position = P * V * pose_mat * vec4(position, 1);
+    normal_out = normal;
+    V_out = V;
+    pose_mat_out = pose_mat;
+    pose_rot_out = pose_rot;
+    fragVert = position;
+    fragTexCoord = vertTexCoord;
+    in_textured = textured;
+    in_color = color;
+}
+"""
+
+fragmentShader_texture_mixed(s) = """
+#version $(s) core
+
+uniform sampler2D tex;
+in vec3 normal_out;
+in mat4 V_out;
+in mat4 pose_mat_out;
+in mat4 pose_rot_out;
+in vec3 fragVert;
+in vec2 fragTexCoord;
+in float in_textured;
+in vec4 in_color;
+
+layout(location = 0) out vec4 color;
+void main() {
+    mat3 normalMatrix = transpose(inverse(mat3(pose_mat_out)));
+    vec3 normal = normalize(normalMatrix * normal_out);
+    
+    //calculate the location of this fragment (pixel) in world coordinates
+    vec3 fragPosition = vec3(pose_mat_out * vec4(fragVert, 1));
+    
+    //calculate the vector from this pixels surface to the light source
+    vec3 surfaceToLight = vec3(0.0, 0.0, 0.0) - fragPosition;
+
+    //calculate the cosine of the angle of incidence
+    float brightness = dot(normal, surfaceToLight) / (length(surfaceToLight) * length(normal));
+    brightness = clamp(brightness, 0, 1);
+
+    if (in_textured > 0.5)
+    {
+		//calculate final color of the pixel, based on:
+		// 1. The angle of incidence: brightness
+		// 2. The color/intensities of the light: light.intensities
+		// 3. The texture and texture coord: texture(tex, fragTexCoord)
+        vec4 surfaceColor = texture(tex, fragTexCoord);
+        color = vec4(brightness * vec3(1.0, 1.0, 1.0) * surfaceColor.rgb, surfaceColor.a);
+	}
+	else
+	{
+        vec4 surfaceColor = in_color;
+        color = vec4(brightness * vec3(1.0, 1.0, 1.0) * surfaceColor.rgb, surfaceColor.a);
+	}
+      
+}
+"""
