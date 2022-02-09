@@ -159,6 +159,45 @@ function activate_renderer(renderer::Renderer)
     GLFW.MakeContextCurrent(renderer.window)
 end
 
+function set_intrinsics!(renderer::Renderer, camera_intrinsics::CameraIntrinsics)
+    renderer.camera_intrinsics = camera_intrinsics
+    renderer.perspective_matrix = get_perspective_matrix(
+        camera_intrinsics.width, camera_intrinsics.height,
+        camera_intrinsics.fx,
+        camera_intrinsics.fy,
+        camera_intrinsics.cx,
+        camera_intrinsics.cy,
+        camera_intrinsics.near,
+        camera_intrinsics.far,
+    )
+
+    fbo = Ref(GLuint(0))
+    glGenFramebuffers(1, fbo)
+
+    depth_tex = Ref(GLuint(0))
+    glGenTextures(1, depth_tex)
+    color_tex = Ref(GLuint(0))
+    glGenTextures(1, color_tex)
+
+    glBindFramebuffer(GL_FRAMEBUFFER, fbo[])
+
+    glBindTexture(GL_TEXTURE_2D, depth_tex[])
+    glTexImage2D(
+      GL_TEXTURE_2D, 0, GL_DEPTH24_STENCIL8, camera_intrinsics.width, camera_intrinsics.height, 0, 
+      GL_DEPTH_STENCIL, GL_UNSIGNED_INT_24_8, C_NULL
+    );
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_TEXTURE_2D, depth_tex[], 0);
+
+    glBindTexture(GL_TEXTURE_2D, color_tex[])
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, camera_intrinsics.width, camera_intrinsics.height, 0,
+                 GL_RGBA, GL_UNSIGNED_BYTE, C_NULL)
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, color_tex[], 0)
+
+    glViewport(0, 0, camera_intrinsics.width, camera_intrinsics.height)
+    glDrawBuffers(2, [GL_DEPTH_STENCIL_ATTACHMENT, GL_COLOR_ATTACHMENT0])
+    println(glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE)
+end
+
 function get_mesh_data_from_obj_file(obj_file_path; tex_path=nothing)
     mesh = FileIO.load(obj_file_path);    
     
