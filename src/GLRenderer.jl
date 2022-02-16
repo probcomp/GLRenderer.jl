@@ -355,6 +355,9 @@ function gl_render(
     camera_pose_mat = pose_to_matrix(inv(camera_pose * Pose(zeros(3),Rotations.RotX(pi))))
 
     for (id, p, c) in zip(mesh_ids, poses, colors)
+        if id <= 1
+            continue
+        end
         vao = renderer.mesh_pointers[id]
         
         glUseProgram(renderer.shader_program)
