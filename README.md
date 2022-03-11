@@ -14,3 +14,8 @@ pip install -r requirements.txt
 ## Usage
 
 Refer to `test/test.jl` for examples of each of the types of rendering.
+
+## To update the ProbComp Registry
+```
+import GLRenderer; import LocalRegistry; LocalRegistry.register(GLRenderer, registry = "git@github.com:probcomp/ProbCompRegistry.git")
+```
