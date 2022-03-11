@@ -155,10 +155,10 @@ function activate_renderer(renderer::Renderer)
     GLFW.MakeContextCurrent(renderer.window)
 end
 
-function get_mesh_data_from_obj_file(obj_file_path; tex_path=nothing)
+function get_mesh_data_from_obj_file(obj_file_path; tex_path=nothing, scaling_factor=1.0)
     mesh = FileIO.load(obj_file_path);    
     
-    vertices = hcat([[x...] for x in mesh.position]...)
+    vertices = hcat([[x...] for x in mesh.position]...) .* scaling_factor
     indices = hcat([[map(GB.value,a)...] for a in GB.faces(mesh)]...) .- 1
     normals = hcat([[x...] for x in mesh.normals]...)
     tex_coords = hcat([[x...] for x in mesh.uv]...)
