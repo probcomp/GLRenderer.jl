@@ -199,24 +199,6 @@ function set_intrinsics!(renderer::Renderer, camera_intrinsics::CameraIntrinsics
     println(glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE)
 end
 
-function get_mesh_data_from_obj_file(obj_file_path; tex_path=nothing, scaling_factor=1.0)
-    mesh = FileIO.load(obj_file_path);    
-    
-    vertices = hcat([[x...] for x in mesh.position]...) .* scaling_factor
-    indices = hcat([[map(GB.value,a)...] for a in GB.faces(mesh)]...) .- 1
-    normals = hcat([[x...] for x in mesh.normals]...)
-    tex_coords = hcat([[x...] for x in mesh.uv]...)
-    
-    vertices = Matrix{Float32}(vertices)
-    indices = Matrix{UInt32}(indices)
-    normals = Matrix{Float32}(normals)
-    tex_coords = Matrix{Float32}(tex_coords)
-
-    Mesh(vertices=vertices, indices=indices, normals=normals,
-         tex_coords=tex_coords, tex_path=tex_path)
-end
-
-
 function load_object!(renderer::Renderer{T}, mesh) where T <: RenderMode
     vao = Ref(GLuint(0))
     glGenVertexArrays(1, vao)
