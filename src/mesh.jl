@@ -75,16 +75,27 @@ end
 
 function get_mesh_data_from_obj_file(obj_file_path; tex_path=nothing, scaling_factor=1.0)
     mesh = FileIO.load(obj_file_path);    
-    
+    @show mesh
     vertices = hcat([[x...] for x in mesh.position]...) .* scaling_factor
     indices = hcat([[map(GB.value,a)...] for a in GB.faces(mesh)]...) .- 1
-    normals = hcat([[x...] for x in mesh.normals]...)
-    tex_coords = hcat([[x...] for x in mesh.uv]...)
+
+    if hasproperty(mesh, :normals)
+        normals = hcat([[x...] for x in mesh.normals]...)
+        normals = Matrix{Float32}(normals)
+    else
+        normals = nothing
+    end
+
+    if hasproperty(mesh, :uv)
+        tex_coords = hcat([[x...] for x in mesh.uv]...)
+        tex_coords = Matrix{Float32}(tex_coords)
+    else
+        tex_coords = nothing
+    end
+
     
     vertices = Matrix{Float32}(vertices)
     indices = Matrix{UInt32}(indices)
-    normals = Matrix{Float32}(normals)
-    tex_coords = Matrix{Float32}(tex_coords)
 
     Mesh(vertices=vertices, indices=indices, normals=normals,
          tex_coords=tex_coords, tex_path=tex_path)
