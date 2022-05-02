@@ -1,7 +1,7 @@
 name = "GLRenderer"
 uuid = "d1e26eb4-c061-4a47-b8d4-4152ce573b03"
 authors = ["Nishad Gothoskar <nishadg@mit.edu>"]
-version = "0.1.4"
+version = "0.1.5"
 
 [deps]
 ColorSchemes = "35d6a980-a343-548e-a6ea-1d62b119f2f4"
