@@ -10,6 +10,7 @@ import PyCall
 import FileIO
 import MeshIO
 import GeometryBasics as GB
+import ColorSchemes
 using ModernGL
 
 
@@ -399,8 +400,14 @@ function gl_render(
 end
 
 # Viewing images
-function view_depth_image(depth_image)
-    img = I.colorview(I.Gray, depth_image ./ maximum(depth_image))
+function view_depth_image(depth_image; scheme=nothing)
+    max_val = maximum(depth_image)
+    min_val = minimum(depth_image)
+    vals = depth_image[(depth_image .> (min_val + 1e-3)) .&  (depth_image .< (max_val - 1e-3))]
+    max_val = maximum(vals)
+    min_val = minimum(vals)
+    d = clamp.(depth_image, min_val, max_val)
+    img = get(ColorSchemes.blackbody, d, (min_val, max_val))	
     I.convert.(I.RGBA, img)
 end
 
@@ -416,8 +423,5 @@ function view_rgb_image(rgb_image; in_255=false)
     end
     img
 end
-
-
-
 
 end

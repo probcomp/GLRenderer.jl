@@ -4,6 +4,7 @@ authors = ["Nishad Gothoskar <nishadg@mit.edu>"]
 version = "0.1.4"
 
 [deps]
+ColorSchemes = "35d6a980-a343-548e-a6ea-1d62b119f2f4"
 FileIO = "5789e2e9-d7fb-5bc7-8068-2c6fae9b9549"
 GLFW = "f7f18e0c-5ee9-5ccd-a5bf-e8befd85ed98"
 GeometryBasics = "5c1252a2-5f33-56bf-86c9-59e7332b4326"

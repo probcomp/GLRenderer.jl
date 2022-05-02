@@ -58,6 +58,23 @@ function box_mesh_from_dims(dims)
     )
 end
 
+function box_wireframe_mesh_from_dims(dims, w)
+    x,y,z = dims
+    wireframe_mesh = +([
+        let
+            mesh_x = box_mesh_from_dims([x + w, w, w])
+            mesh_x = Pose([0.0, s_x * y/2.0, s_y * z/2.0]) * mesh_x
+            mesh_y = box_mesh_from_dims([w, y + w, w])
+            mesh_y = Pose([s_x * x/2.0, 0.0, s_y * z/2.0]) * mesh_y
+            mesh_z = box_mesh_from_dims([w, w, z + w])
+            mesh_z = Pose([s_x * x/2.0, s_y * y/2.0, 0.0]) * mesh_z
+            mesh_x + mesh_y + mesh_z
+        end
+        for (s_x, s_y) in [(-1,1),(-1,-1),(1,-1),(1,1)]
+    ]...)
+    wireframe_mesh
+end
+
 
 function Base.:(+)(a::Mesh, b::Mesh)::Mesh
     Mesh(
