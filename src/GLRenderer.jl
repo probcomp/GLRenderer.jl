@@ -65,7 +65,14 @@ mutable struct Renderer{T <: RenderMode}
     perspective_matrix::Matrix
 end
 
-function setup_renderer(camera_intrinsics::CameraIntrinsics, mode::RenderMode; gl_version=(4,1), name="GLRenderer")::Renderer
+function setup_renderer(camera_intrinsics::CameraIntrinsics, mode::RenderMode; name="GLRenderer")::Renderer
+    window = GLFW.CreateWindow(1,1, "dummy")
+    GLFW.MakeContextCurrent(window)
+    version_string = unsafe_string(glGetString(GL_VERSION))
+    gl_version = (i -> parse(Int,i)).(split(split(version_string," ")[1],"."))
+    GLFW.DestroyWindow(window)
+    @show gl_version
+
     perspective_matrix = get_perspective_matrix(
         camera_intrinsics.width, camera_intrinsics.height,
         camera_intrinsics.fx,
