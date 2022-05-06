@@ -3,3 +3,4 @@ src/renderer/CppRenderer.egg-info/*
 Manifest.toml
 *.png
 */.ipynb_checkpoints/*
+venv
