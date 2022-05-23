@@ -411,11 +411,12 @@ end
 function view_depth_image(depth_image; scheme=nothing)
     max_val = maximum(depth_image)
     min_val = minimum(depth_image)
-    vals = depth_image[(depth_image .> (min_val + 1e-3)) .&  (depth_image .< (max_val - 1e-3))]
-    max_val = maximum(vals)
-    min_val = minimum(vals)
+    # vals = depth_image[(depth_image .> (min_val + 1e-3)) .&  (depth_image .< (max_val - 1e-3))]
+    # vals = depth_image[(depth_image .> (min_val + 1e-3)) .&  (depth_image .< (max_val - 1e-3))]
+    # max_val = maximum(vals)
+    # min_val = minimum(vals)
     d = clamp.(depth_image, min_val, max_val)
-    img = get(ColorSchemes.blackbody, d, (min_val, max_val))	
+    img = get(ColorSchemes.hot, d, (min_val, max_val))	
     I.convert.(I.RGBA, img)
 end
 

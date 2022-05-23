@@ -1,8 +1,8 @@
 import Printf
 
 function voxelize(cloud, resolution)
-    cloud = round.(cloud ./ resolution) * resolution
-    idxs = unique(i -> cloud[:,i], 1:size(cloud)[2])
+    cloud_xyz = round.(cloud[1:min(size(cloud,1), 3),:] ./ resolution) * resolution
+    idxs = unique(i -> cloud_xyz[:,i], 1:size(cloud_xyz)[2])
     cloud[:, idxs]
 end
 
@@ -125,26 +125,25 @@ end
 
 function get_mesh_data_from_obj_file(obj_file_path; tex_path=nothing, scaling_factor=1.0)
     mesh = FileIO.load(obj_file_path);    
-    @show mesh
     vertices = hcat([[x...] for x in mesh.position]...) .* scaling_factor
     indices = hcat([[map(GB.value,a)...] for a in GB.faces(mesh)]...) .- 1
 
     if hasproperty(mesh, :normals)
         normals = hcat([[x...] for x in mesh.normals]...)
-        normals = Matrix{Float32}(normals)
+        normals = Matrix{Float64}(normals)
     else
         normals = nothing
     end
 
     if hasproperty(mesh, :uv)
         tex_coords = hcat([[x...] for x in mesh.uv]...)
-        tex_coords = Matrix{Float32}(tex_coords)
+        tex_coords = Matrix{Float64}(tex_coords)
     else
         tex_coords = nothing
     end
 
     
-    vertices = Matrix{Float32}(vertices)
+    vertices = Matrix{Float64}(vertices)
     indices = Matrix{UInt32}(indices)
 
     Mesh(vertices=vertices, indices=indices, normals=normals,

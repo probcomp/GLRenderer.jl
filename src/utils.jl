@@ -56,6 +56,29 @@ function get_perspective_matrix(width, height, fx, fy, cx, cy, near, far)
     ndc_matrix * proj_matrix
 end
 
+
+function CameraIntrinsics_from_fov_aspect(width, height, fov_y, aspect_ratio, near, far)
+    # Camera principal point is the center of the image.
+    cx, cy = width / 2.0, height / 2.0
+
+    # Vertical field of view is given.
+    fov_y = deg2rad(fov_y)
+    # Convert field of view to distance to scale by aspect ratio and
+    # convert back to radians to recover the horizontal field of view.
+    fov_x = 2 * atan(aspect_ratio * tan(fov_y / 2.0))
+
+    # Use the following relation to recover the focal length:
+    #   FOV = 2 * atan( (0.5 * IMAGE_PLANE_SIZE) / FOCAL_LENGTH )
+    fx = cx / tan(fov_x / 2.0)
+    fy = cy / tan(fov_y / 2.0)
+
+
+    CameraIntrinsics(width, height,
+        fx, fy, cx, cy,
+        near, far)
+end
+
+
 function scale_down_camera(camera, factor)
     camera_modified = CameraIntrinsics(
         width=round(Int,camera.width/factor), height=round(Int,camera.height/factor),
