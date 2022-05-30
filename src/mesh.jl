@@ -3,7 +3,7 @@ import Printf
 function voxelize(cloud, resolution)
     cloud_xyz = round.(cloud[1:min(size(cloud,1), 3),:] ./ resolution) * resolution
     idxs = unique(i -> cloud_xyz[:,i], 1:size(cloud_xyz)[2])
-    cloud[:, idxs]
+    cloud_xyz[:, idxs]
 end
 
 const cube_vertices = [
@@ -91,6 +91,15 @@ function box_mesh_from_dims(dims)
     )
 end
 
+function box_container_mesh_from_dims(dims)
+    cube_faces_minus_top = cube_faces[1:end .∉ [[1, 7]],:]
+    Mesh(
+        vertices=permutedims(cube_vertices .* (dims ./ 2.0)'),
+        indices=permutedims(cube_faces_minus_top),
+        normals=permutedims(cube_normals)
+    )
+end
+
 function box_wireframe_mesh_from_dims(dims, w)
     x,y,z = dims
     wireframe_mesh = +([
@@ -142,7 +151,6 @@ function get_mesh_data_from_obj_file(obj_file_path; tex_path=nothing, scaling_fa
         tex_coords = nothing
     end
 
-    
     vertices = Matrix{Float64}(vertices)
     indices = Matrix{UInt32}(indices)
 
