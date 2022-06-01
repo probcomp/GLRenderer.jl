@@ -48,7 +48,8 @@ function point_cloud_to_pixel_coordinates(point_cloud::Matrix{Float64}, intrinsi
 
     temp = point_cloud_normalized[1:2, :] .* [intrinsics.fx, intrinsics.fy]
     temp = temp .+ [intrinsics.cx + 0.5, intrinsics.cy + 0.5]
-    pixel_coords = round.(Int, temp)
+    max_dim = max(intrinsics.width, intrinsics.height)
+    pixel_coords = round.(Int, clamp.(temp, -max_dim, 2*max_dim))
     return pixel_coords
 end
 

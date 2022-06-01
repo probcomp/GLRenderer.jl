@@ -420,6 +420,12 @@ function view_depth_image(depth_image; scheme=nothing)
     I.convert.(I.RGBA, img)
 end
 
+function view_depth_image(depth_image, min, max)
+    d = clamp.(depth_image, min, max)
+    img = get(ColorSchemes.amp, d, (min, max))  
+    I.convert.(I.RGBA, img)
+end
+
 function view_rgb_image(rgb_image; in_255=false)
     if in_255
         rgb_image = Float64.(rgb_image)./255.0
