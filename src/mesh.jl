@@ -3,7 +3,11 @@ import Printf
 function voxelize(cloud, resolution)
     cloud_xyz = round.(cloud[1:min(size(cloud,1), 3),:] ./ resolution) * resolution
     idxs = unique(i -> cloud_xyz[:,i], 1:size(cloud_xyz)[2])
-    cloud_xyz[:, idxs]
+    if size(cloud,1) > 3
+        vcat(cloud_xyz[:, idxs], cloud[4:end, idxs])
+    else
+        cloud_xyz[:, idxs]
+    end
 end
 
 const cube_vertices = [
