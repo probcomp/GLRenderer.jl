@@ -10,6 +10,7 @@ function voxelize(cloud, resolution)
     end
 end
 
+
 const cube_vertices = [
  1.         -1.          1. ;
 -1.         -1.          1. ;
