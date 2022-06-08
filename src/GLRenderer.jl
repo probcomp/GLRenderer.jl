@@ -63,6 +63,7 @@ mutable struct Renderer{T <: RenderMode}
     mesh_sizes::Any
     textures::Any
     perspective_matrix::Matrix
+    mesh_count::Int
 end
 
 function setup_renderer(camera_intrinsics::CameraIntrinsics, mode::RenderMode; name="GLRenderer", gl_version=nothing)::Renderer
@@ -161,7 +162,7 @@ function setup_renderer(camera_intrinsics::CameraIntrinsics, mode::RenderMode; n
     glDrawBuffers(2, [GL_DEPTH_STENCIL_ATTACHMENT, GL_COLOR_ATTACHMENT0])
     println(glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE)
 
-    Renderer{typeof(mode)}(window, camera_intrinsics, shader_program, [], [], [], perspective_matrix)
+    Renderer{typeof(mode)}(window, camera_intrinsics, shader_program, Dict(), Dict(), Dict(), perspective_matrix, 1)
 end
 
 function activate_renderer(renderer::Renderer)
@@ -209,6 +210,11 @@ function set_intrinsics!(renderer::Renderer, camera_intrinsics::CameraIntrinsics
 end
 
 function load_object!(renderer::Renderer{T}, mesh) where T <: RenderMode
+    load_object!(renderer::Renderer{T}, renderer.mesh_count, mesh)
+    renderer.mesh_count += 1
+end
+
+function load_object!(renderer::Renderer{T}, name, mesh) where T <: RenderMode
     vao = Ref(GLuint(0))
     glGenVertexArrays(1, vao)
     glBindVertexArray(vao[])
@@ -293,7 +299,7 @@ function load_object!(renderer::Renderer{T}, mesh) where T <: RenderMode
             return img_data, img.width, img.height
         """
         if isnothing(mesh.tex_path)
-            push!(renderer.textures, nothing)
+            renderer.textures[name] = nothing
         else
             img_data, width, height = PyCall.py"load_texture_bytes"(mesh.tex_path);
 
@@ -313,7 +319,7 @@ function load_object!(renderer::Renderer{T}, mesh) where T <: RenderMode
                             GL_RGB, GL_UNSIGNED_BYTE, img_data)
             glGenerateMipmap(GL_TEXTURE_2D)
         
-            push!(renderer.textures, texture)
+            renderer.textures[name] =  texture
         end
 
     end
@@ -322,8 +328,8 @@ function load_object!(renderer::Renderer{T}, mesh) where T <: RenderMode
     glBindBuffer(GL_ARRAY_BUFFER, 0)
     glBindVertexArray(0)
 
-    push!(renderer.mesh_pointers, vao[])
-    push!(renderer.mesh_sizes, size(mesh.indices)[2] * 3)
+    renderer.mesh_pointers[name] = vao[]
+    renderer.mesh_sizes[name] =  size(mesh.indices)[2] * 3
     return true
 end
 
