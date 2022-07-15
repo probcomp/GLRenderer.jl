@@ -39,7 +39,7 @@ function depth_image_to_point_cloud(
     return point_cloud
 end
 
-function point_cloud_to_pixel_coordinates(point_cloud::Matrix{Float64}, intrinsics::CameraIntrinsics)
+function point_cloud_to_pixel_coordinates(point_cloud::Matrix{<:Real}, intrinsics::CameraIntrinsics)
     if size(point_cloud)[1] != 3
         error("expected an 3 x n matrix")
     end
@@ -54,7 +54,7 @@ function point_cloud_to_pixel_coordinates(point_cloud::Matrix{Float64}, intrinsi
     return pixel_coords
 end
 
-function flatten_point_cloud(point_cloud::Array{Float64,3})
+function flatten_point_cloud(point_cloud::Array{<:Real,3})
     (height, width, k) = size(point_cloud)
     if k != 3
         error("expected (height x width x 3) array")

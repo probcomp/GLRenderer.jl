@@ -13,7 +13,7 @@ import GeometryBasics as GB
 import ColorSchemes
 using ModernGL
 
-
+get_glrenderer_module_path() =  dirname(dirname(pathof(@__MODULE__)))
 
 @with_kw struct CameraIntrinsics
     width::Int = 640
@@ -46,10 +46,12 @@ include("shaders.jl")
 include("utils.jl")
 include("mesh.jl")
 include("point_cloud.jl")
+include("approximate_cloud_renderer.jl")
 
 
 abstract type RenderMode end
 struct DepthMode <: RenderMode end
+struct PointCloudMode <: RenderMode end
 struct RGBBasicMode <: RenderMode end
 struct RGBMode <: RenderMode end
 struct TextureMode <: RenderMode end
@@ -114,6 +116,9 @@ function setup_renderer(camera_intrinsics::CameraIntrinsics, mode::RenderMode; n
     if typeof(mode) == DepthMode
         vertex_shader = createShader(vertex_source_depth(gl_version_for_shaders), GL_VERTEX_SHADER)
         fragment_shader = createShader(fragment_source_depth(gl_version_for_shaders), GL_FRAGMENT_SHADER)
+    elseif typeof(mode) == PointCloudMode
+        vertex_shader = createShader(vertex_source_point_cloud(gl_version_for_shaders), GL_VERTEX_SHADER)
+        fragment_shader = createShader(fragment_source_point_cloud(gl_version_for_shaders), GL_FRAGMENT_SHADER)
     elseif typeof(mode) == RGBBasicMode
         vertex_shader = createShader(vertexShader_rgb_basic(gl_version_for_shaders), GL_VERTEX_SHADER)
         fragment_shader = createShader(fragmentShader_rgb_basic(gl_version_for_shaders), GL_FRAGMENT_SHADER)
@@ -219,7 +224,7 @@ function load_object!(renderer::Renderer{T}, name, mesh) where T <: RenderMode
     glGenVertexArrays(1, vao)
     glBindVertexArray(vao[])
 
-    if T == DepthMode || T == RGBBasicMode
+    if T == DepthMode || T == RGBBasicMode || T == PointCloudMode
         @assert size(mesh.vertices)[1] == 3
         vertex_data = mesh.vertices
     elseif T == RGBMode
@@ -227,7 +232,7 @@ function load_object!(renderer::Renderer{T}, name, mesh) where T <: RenderMode
         @assert size(mesh.normals)[1] == 3
         @assert size(mesh.vertices)[2] == size(mesh.normals)[2]
         vertex_data = vcat(mesh.vertices, mesh.normals)
-    else
+    elseif T == TextureMode || T == TextureMixedMode
         @assert size(mesh.vertices)[1] == 3
         @assert size(mesh.normals)[1] == 3
         if T == TextureMixedMode && isnothing(mesh.tex_coords)
@@ -238,6 +243,8 @@ function load_object!(renderer::Renderer{T}, name, mesh) where T <: RenderMode
         end
         @assert size(mesh.vertices)[2] == size(mesh.normals)[2] == size(tex_coords)[2]
         vertex_data = vcat(mesh.vertices, mesh.normals, tex_coords)
+    else
+        error("unsupported mode $(T)")
     end
 
     vertex_data = Matrix{Float32}(vertex_data)
@@ -256,7 +263,7 @@ function load_object!(renderer::Renderer{T}, name, mesh) where T <: RenderMode
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), Ref(indices, 1), GL_STATIC_DRAW)
 
 
-    if T == DepthMode || T == RGBBasicMode
+    if T == DepthMode || T == RGBBasicMode || T == PointCloudMode
         glEnableVertexAttribArray(glGetAttribLocation(renderer.shader_program, "position"))
         
         # set vertex attribute pointers
@@ -395,6 +402,14 @@ function gl_render(
     end
     
     cam = renderer.camera_intrinsics
+    
+    if T == PointCloudMode
+        glReadBuffer(GL_COLOR_ATTACHMENT0)        
+        data1 = zeros(Float32, 4,cam.width, cam.height)
+        glReadPixels(0, 0, cam.width, cam.height, GL_BGRA, GL_FLOAT, Ref(data1, 1))
+        return data1
+    end
+
     data = Matrix{Float32}(undef, cam.width, cam.height)
     glReadPixels(0, 0, cam.width, cam.height, GL_DEPTH_COMPONENT, GL_FLOAT, Ref(data, 1))
     near,far = cam.near, cam.far
